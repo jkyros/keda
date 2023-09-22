@@ -21,19 +21,29 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.2.0
 	github.com/DataDog/datadog-api-client-go v1.16.0
 	github.com/Huawei/gophercloud v1.0.21
-	github.com/Shopify/sarama v1.31.1
-	github.com/aws/aws-sdk-go v1.42.44
-	github.com/denisenkom/go-mssqldb v0.12.0
-	github.com/dysnix/predictkube-libs v0.0.3
-	github.com/dysnix/predictkube-proto v0.0.0-20211223141524-d309509b6b5f
-	github.com/elastic/go-elasticsearch/v7 v7.16.0
-	github.com/go-logr/logr v1.2.2
-	github.com/go-playground/assert/v2 v2.0.1
-	github.com/go-playground/validator/v10 v10.10.0
-	github.com/go-redis/redis/v8 v8.11.4
-	github.com/go-sql-driver/mysql v1.6.0
+	github.com/IBM/sarama v1.41.1
+	github.com/arangodb/go-driver v1.6.0
+	github.com/aws/aws-sdk-go-v2 v1.21.0
+	github.com/aws/aws-sdk-go-v2/config v1.18.38
+	github.com/aws/aws-sdk-go-v2/credentials v1.13.36
+	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.27.6
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.21.5
+	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.15.5
+	github.com/aws/aws-sdk-go-v2/service/kinesis v1.18.5
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.24.5
+	github.com/aws/aws-sdk-go-v2/service/sts v1.21.5
+	github.com/bradleyfalzon/ghinstallation/v2 v2.6.0
+	github.com/denisenkom/go-mssqldb v0.12.3
+	github.com/dysnix/predictkube-libs v0.0.4-0.20230109175007-5a82fccd31c7
+	github.com/dysnix/predictkube-proto v0.0.0-20220713123213-7135dce1e9c9
+	github.com/elastic/go-elasticsearch/v7 v7.17.10
+	github.com/go-kivik/couchdb/v3 v3.4.1
+	github.com/go-kivik/kivik/v3 v3.2.4
+	github.com/go-logr/logr v1.2.4
+	github.com/go-playground/validator/v10 v10.15.3
+	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gobwas/glob v0.2.3
-	github.com/gocql/gocql v1.3.1
+	github.com/gocql/gocql v1.6.0
 	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.5.9
 	github.com/google/go-github/v50 v50.2.0
@@ -160,16 +170,22 @@ require (
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
-	github.com/fatih/color v1.9.0 // indirect
-	github.com/felixge/httpsnoop v1.0.1 // indirect
-	github.com/fsnotify/fsnotify v1.5.1 // indirect
-	github.com/go-logr/zapr v1.2.0 // indirect
-	github.com/go-openapi/jsonpointer v0.19.5 // indirect
-	github.com/go-openapi/jsonreference v0.19.6 // indirect
-	github.com/go-openapi/swag v0.19.15 // indirect
-	github.com/go-playground/locales v0.14.0 // indirect
-	github.com/go-playground/universal-translator v0.18.0 // indirect
-	github.com/go-stack/stack v1.8.0 // indirect
+	github.com/fatih/color v1.15.0 // indirect
+	github.com/felixge/httpsnoop v1.0.3 // indirect
+	github.com/fsnotify/fsnotify v1.6.0 // indirect
+	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
+	github.com/go-errors/errors v1.4.2 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.0 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-logr/zapr v1.2.4 // indirect
+	github.com/go-openapi/jsonpointer v0.19.6 // indirect
+	github.com/go-openapi/jsonreference v0.20.2 // indirect
+	github.com/go-openapi/swag v0.22.3 // indirect
+	github.com/go-playground/locales v0.14.1 // indirect
+	github.com/go-playground/universal-translator v0.18.1 // indirect
+	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
+	github.com/gobuffalo/flect v1.0.2 // indirect
+	github.com/gofrs/uuid v4.2.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.0 // indirect
