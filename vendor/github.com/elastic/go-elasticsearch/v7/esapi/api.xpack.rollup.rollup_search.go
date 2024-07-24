@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// Code generated from specification version 7.17.10: DO NOT EDIT
+// Code generated from specification version 7.16.0: DO NOT EDIT
 
 package esapi
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -45,9 +44,11 @@ func newRollupRollupSearchFunc(t Transport) RollupRollupSearch {
 // This API is experimental.
 //
 // See full documentation at https://www.elastic.co/guide/en/elasticsearch/reference/master/rollup-search.html.
+//
 type RollupRollupSearch func(index []string, body io.Reader, o ...func(*RollupRollupSearchRequest)) (*Response, error)
 
 // RollupRollupSearchRequest configures the Rollup Rollup Search API request.
+//
 type RollupRollupSearchRequest struct {
 	Index        []string
 	DocumentType string
@@ -68,6 +69,7 @@ type RollupRollupSearchRequest struct {
 }
 
 // Do executes the request and returns response or error.
+//
 func (r RollupRollupSearchRequest) Do(ctx context.Context, transport Transport) (*Response, error) {
 	var (
 		method string
@@ -76,10 +78,6 @@ func (r RollupRollupSearchRequest) Do(ctx context.Context, transport Transport) 
 	)
 
 	method = "POST"
-
-	if len(r.Index) == 0 {
-		return nil, errors.New("index is required and cannot be nil or empty")
-	}
 
 	path.Grow(1 + len(strings.Join(r.Index, ",")) + 1 + len(r.DocumentType) + 1 + len("_rollup_search"))
 	path.WriteString("/")
@@ -130,6 +128,10 @@ func (r RollupRollupSearchRequest) Do(ctx context.Context, transport Transport) 
 		req.URL.RawQuery = q.Encode()
 	}
 
+	if r.Body != nil {
+		req.Header[headerContentType] = headerContentTypeJSON
+	}
+
 	if len(r.Header) > 0 {
 		if len(req.Header) == 0 {
 			req.Header = r.Header
@@ -140,10 +142,6 @@ func (r RollupRollupSearchRequest) Do(ctx context.Context, transport Transport) 
 				}
 			}
 		}
-	}
-
-	if r.Body != nil && req.Header.Get(headerContentType) == "" {
-		req.Header[headerContentType] = headerContentTypeJSON
 	}
 
 	if ctx != nil {
@@ -165,6 +163,7 @@ func (r RollupRollupSearchRequest) Do(ctx context.Context, transport Transport) 
 }
 
 // WithContext sets the request context.
+//
 func (f RollupRollupSearch) WithContext(v context.Context) func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.ctx = v
@@ -172,6 +171,7 @@ func (f RollupRollupSearch) WithContext(v context.Context) func(*RollupRollupSea
 }
 
 // WithDocumentType - the doc type inside the index.
+//
 func (f RollupRollupSearch) WithDocumentType(v string) func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.DocumentType = v
@@ -179,6 +179,7 @@ func (f RollupRollupSearch) WithDocumentType(v string) func(*RollupRollupSearchR
 }
 
 // WithRestTotalHitsAsInt - indicates whether hits.total should be rendered as an integer or an object in the rest search response.
+//
 func (f RollupRollupSearch) WithRestTotalHitsAsInt(v bool) func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.RestTotalHitsAsInt = &v
@@ -186,6 +187,7 @@ func (f RollupRollupSearch) WithRestTotalHitsAsInt(v bool) func(*RollupRollupSea
 }
 
 // WithTypedKeys - specify whether aggregation and suggester names should be prefixed by their respective types in the response.
+//
 func (f RollupRollupSearch) WithTypedKeys(v bool) func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.TypedKeys = &v
@@ -193,6 +195,7 @@ func (f RollupRollupSearch) WithTypedKeys(v bool) func(*RollupRollupSearchReques
 }
 
 // WithPretty makes the response body pretty-printed.
+//
 func (f RollupRollupSearch) WithPretty() func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.Pretty = true
@@ -200,6 +203,7 @@ func (f RollupRollupSearch) WithPretty() func(*RollupRollupSearchRequest) {
 }
 
 // WithHuman makes statistical values human-readable.
+//
 func (f RollupRollupSearch) WithHuman() func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.Human = true
@@ -207,6 +211,7 @@ func (f RollupRollupSearch) WithHuman() func(*RollupRollupSearchRequest) {
 }
 
 // WithErrorTrace includes the stack trace for errors in the response body.
+//
 func (f RollupRollupSearch) WithErrorTrace() func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.ErrorTrace = true
@@ -214,6 +219,7 @@ func (f RollupRollupSearch) WithErrorTrace() func(*RollupRollupSearchRequest) {
 }
 
 // WithFilterPath filters the properties of the response body.
+//
 func (f RollupRollupSearch) WithFilterPath(v ...string) func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		r.FilterPath = v
@@ -221,6 +227,7 @@ func (f RollupRollupSearch) WithFilterPath(v ...string) func(*RollupRollupSearch
 }
 
 // WithHeader adds the headers to the HTTP request.
+//
 func (f RollupRollupSearch) WithHeader(h map[string]string) func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		if r.Header == nil {
@@ -233,6 +240,7 @@ func (f RollupRollupSearch) WithHeader(h map[string]string) func(*RollupRollupSe
 }
 
 // WithOpaqueID adds the X-Opaque-Id header to the HTTP request.
+//
 func (f RollupRollupSearch) WithOpaqueID(s string) func(*RollupRollupSearchRequest) {
 	return func(r *RollupRollupSearchRequest) {
 		if r.Header == nil {

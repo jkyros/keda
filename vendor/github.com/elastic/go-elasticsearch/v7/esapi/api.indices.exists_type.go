@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 //
-// Code generated from specification version 7.17.10: DO NOT EDIT
+// Code generated from specification version 7.16.0: DO NOT EDIT
 
 package esapi
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,9 +41,11 @@ func newIndicesExistsDocumentTypeFunc(t Transport) IndicesExistsDocumentType {
 // IndicesExistsDocumentType returns information about whether a particular document type exists. (DEPRECATED)
 //
 // See full documentation at https://www.elastic.co/guide/en/elasticsearch/reference/master/indices-types-exists.html.
+//
 type IndicesExistsDocumentType func(index []string, o ...func(*IndicesExistsDocumentTypeRequest)) (*Response, error)
 
 // IndicesExistsDocumentTypeRequest configures the Indices Exists Document Type API request.
+//
 type IndicesExistsDocumentTypeRequest struct {
 	Index        []string
 	DocumentType []string
@@ -65,6 +66,7 @@ type IndicesExistsDocumentTypeRequest struct {
 }
 
 // Do executes the request and returns response or error.
+//
 func (r IndicesExistsDocumentTypeRequest) Do(ctx context.Context, transport Transport) (*Response, error) {
 	var (
 		method string
@@ -73,13 +75,6 @@ func (r IndicesExistsDocumentTypeRequest) Do(ctx context.Context, transport Tran
 	)
 
 	method = "HEAD"
-
-	if len(r.Index) == 0 {
-		return nil, errors.New("index is required and cannot be nil or empty")
-	}
-	if len(r.DocumentType) == 0 {
-		return nil, errors.New("type is required and cannot be nil or empty")
-	}
 
 	path.Grow(1 + len(strings.Join(r.Index, ",")) + 1 + len("_mapping") + 1 + len(strings.Join(r.DocumentType, ",")))
 	path.WriteString("/")
@@ -167,6 +162,7 @@ func (r IndicesExistsDocumentTypeRequest) Do(ctx context.Context, transport Tran
 }
 
 // WithContext sets the request context.
+//
 func (f IndicesExistsDocumentType) WithContext(v context.Context) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.ctx = v
@@ -174,6 +170,7 @@ func (f IndicesExistsDocumentType) WithContext(v context.Context) func(*IndicesE
 }
 
 // WithDocumentType - a list of document types to check.
+//
 func (f IndicesExistsDocumentType) WithDocumentType(v ...string) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.DocumentType = v
@@ -181,6 +178,7 @@ func (f IndicesExistsDocumentType) WithDocumentType(v ...string) func(*IndicesEx
 }
 
 // WithAllowNoIndices - whether to ignore if a wildcard indices expression resolves into no concrete indices. (this includes `_all` string or when no indices have been specified).
+//
 func (f IndicesExistsDocumentType) WithAllowNoIndices(v bool) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.AllowNoIndices = &v
@@ -188,6 +186,7 @@ func (f IndicesExistsDocumentType) WithAllowNoIndices(v bool) func(*IndicesExist
 }
 
 // WithExpandWildcards - whether to expand wildcard expression to concrete indices that are open, closed or both..
+//
 func (f IndicesExistsDocumentType) WithExpandWildcards(v string) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.ExpandWildcards = v
@@ -195,6 +194,7 @@ func (f IndicesExistsDocumentType) WithExpandWildcards(v string) func(*IndicesEx
 }
 
 // WithIgnoreUnavailable - whether specified concrete indices should be ignored when unavailable (missing or closed).
+//
 func (f IndicesExistsDocumentType) WithIgnoreUnavailable(v bool) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.IgnoreUnavailable = &v
@@ -202,6 +202,7 @@ func (f IndicesExistsDocumentType) WithIgnoreUnavailable(v bool) func(*IndicesEx
 }
 
 // WithLocal - return local information, do not retrieve the state from master node (default: false).
+//
 func (f IndicesExistsDocumentType) WithLocal(v bool) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.Local = &v
@@ -209,6 +210,7 @@ func (f IndicesExistsDocumentType) WithLocal(v bool) func(*IndicesExistsDocument
 }
 
 // WithPretty makes the response body pretty-printed.
+//
 func (f IndicesExistsDocumentType) WithPretty() func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.Pretty = true
@@ -216,6 +218,7 @@ func (f IndicesExistsDocumentType) WithPretty() func(*IndicesExistsDocumentTypeR
 }
 
 // WithHuman makes statistical values human-readable.
+//
 func (f IndicesExistsDocumentType) WithHuman() func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.Human = true
@@ -223,6 +226,7 @@ func (f IndicesExistsDocumentType) WithHuman() func(*IndicesExistsDocumentTypeRe
 }
 
 // WithErrorTrace includes the stack trace for errors in the response body.
+//
 func (f IndicesExistsDocumentType) WithErrorTrace() func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.ErrorTrace = true
@@ -230,6 +234,7 @@ func (f IndicesExistsDocumentType) WithErrorTrace() func(*IndicesExistsDocumentT
 }
 
 // WithFilterPath filters the properties of the response body.
+//
 func (f IndicesExistsDocumentType) WithFilterPath(v ...string) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		r.FilterPath = v
@@ -237,6 +242,7 @@ func (f IndicesExistsDocumentType) WithFilterPath(v ...string) func(*IndicesExis
 }
 
 // WithHeader adds the headers to the HTTP request.
+//
 func (f IndicesExistsDocumentType) WithHeader(h map[string]string) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		if r.Header == nil {
@@ -249,6 +255,7 @@ func (f IndicesExistsDocumentType) WithHeader(h map[string]string) func(*Indices
 }
 
 // WithOpaqueID adds the X-Opaque-Id header to the HTTP request.
+//
 func (f IndicesExistsDocumentType) WithOpaqueID(s string) func(*IndicesExistsDocumentTypeRequest) {
 	return func(r *IndicesExistsDocumentTypeRequest) {
 		if r.Header == nil {
