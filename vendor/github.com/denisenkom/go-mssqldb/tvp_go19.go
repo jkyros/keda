@@ -1,4 +1,3 @@
-//go:build go1.9
 // +build go1.9
 
 package mssql
@@ -17,7 +16,6 @@ import (
 const (
 	jsonTag      = "json"
 	tvpTag       = "tvp"
-	tvpIdentity  = "@identity"
 	skipTagValue = "-"
 	sqlSeparator = "."
 )
@@ -31,7 +29,7 @@ var (
 	ErrorWrongTyping      = errors.New("the number of elements in columnStr and tvpFieldIndexes do not align")
 )
 
-// TVP is driver type, which allows supporting Table Valued Parameters (TVP) in SQL Server
+//TVP is driver type, which allows supporting Table Valued Parameters (TVP) in SQL Server
 type TVP struct {
 	//TypeName mustn't be default value
 	TypeName string
@@ -78,8 +76,8 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 	binary.Write(buf, binary.LittleEndian, uint16(len(columnStr)))
 
 	for i, column := range columnStr {
-		binary.Write(buf, binary.LittleEndian, column.UserType)
-		binary.Write(buf, binary.LittleEndian, column.Flags)
+		binary.Write(buf, binary.LittleEndian, uint32(column.UserType))
+		binary.Write(buf, binary.LittleEndian, uint16(column.Flags))
 		writeTypeInfo(buf, &columnStr[i].ti)
 		writeBVarChar(buf, "")
 	}
@@ -98,9 +96,6 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 		refStr := reflect.ValueOf(val.Index(i).Interface())
 		buf.WriteByte(_TVP_ROW_TOKEN)
 		for columnStrIdx, fieldIdx := range tvpFieldIndexes {
-			if columnStr[columnStrIdx].Flags == fDefault {
-				continue
-			}
 			field := refStr.Field(fieldIdx)
 			tvpVal := field.Interface()
 			if tvp.verifyStandardTypeOnNull(buf, tvpVal) {
@@ -140,11 +135,6 @@ func (tvp TVP) encode(schema, name string, columnStr []columnStruct, tvpFieldInd
 }
 
 func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
-	type fieldDetailStore struct {
-		defaultValue interface{}
-		isIdentity   bool
-	}
-
 	val := reflect.ValueOf(tvp.Value)
 	var firstRow interface{}
 	if val.Len() != 0 {
@@ -155,7 +145,7 @@ func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
 
 	tvpRow := reflect.TypeOf(firstRow)
 	columnCount := tvpRow.NumField()
-	defaultValues := make([]fieldDetailStore, 0, columnCount)
+	defaultValues := make([]interface{}, 0, columnCount)
 	tvpFieldIndexes := make([]int, 0, columnCount)
 	for i := 0; i < columnCount; i++ {
 		field := tvpRow.Field(i)
@@ -165,19 +155,12 @@ func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
 			continue
 		}
 		tvpFieldIndexes = append(tvpFieldIndexes, i)
-		isIdentity := tvpTagValue == tvpIdentity
 		if field.Type.Kind() == reflect.Ptr {
 			v := reflect.New(field.Type.Elem())
-			defaultValues = append(defaultValues, fieldDetailStore{
-				defaultValue: v.Interface(),
-				isIdentity:   isIdentity,
-			})
+			defaultValues = append(defaultValues, v.Interface())
 			continue
 		}
-		defaultValues = append(defaultValues, fieldDetailStore{
-			defaultValue: tvp.createZeroType(reflect.Zero(field.Type).Interface()),
-			isIdentity:   isIdentity,
-		})
+		defaultValues = append(defaultValues, tvp.createZeroType(reflect.Zero(field.Type).Interface()))
 	}
 
 	if columnCount-len(tvpFieldIndexes) == columnCount {
@@ -193,9 +176,9 @@ func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
 
 	columnConfiguration := make([]columnStruct, 0, columnCount)
 	for index, val := range defaultValues {
-		cval, err := convertInputParameter(val.defaultValue)
+		cval, err := convertInputParameter(val)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to convert tvp parameter row %d col %d: %s", index, val.defaultValue, err)
+			return nil, nil, fmt.Errorf("failed to convert tvp parameter row %d col %d: %s", index, val, err)
 		}
 		param, err := stmt.makeParam(cval)
 		if err != nil {
@@ -203,9 +186,6 @@ func (tvp TVP) columnTypes() ([]columnStruct, []int, error) {
 		}
 		column := columnStruct{
 			ti: param.ti,
-		}
-		if val.isIdentity {
-			column.Flags = fDefault
 		}
 		switch param.ti.TypeId {
 		case typeNVarChar, typeBigVarBin:

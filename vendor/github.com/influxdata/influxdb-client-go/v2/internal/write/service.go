@@ -30,19 +30,22 @@ import (
 type Batch struct {
 	// lines to send
 	Batch string
+	// current retry delay
+	RetryDelay uint
 	// retry attempts so far
 	RetryAttempts uint
 	// true if it was removed from queue
 	Evicted bool
-	// time when this batch expires
+	// time where this batch expires
 	Expires time.Time
 }
 
 // NewBatch creates new batch
-func NewBatch(data string, expireDelayMs uint) *Batch {
+func NewBatch(data string, retryDelay uint, expireDelayMs uint) *Batch {
 	return &Batch{
-		Batch:   data,
-		Expires: time.Now().Add(time.Duration(expireDelayMs) * time.Millisecond),
+		Batch:      data,
+		RetryDelay: retryDelay,
+		Expires:    time.Now().Add(time.Duration(expireDelayMs) * time.Millisecond),
 	}
 }
 
@@ -62,8 +65,6 @@ type Service struct {
 	writeOptions         *write.Options
 	retryExponentialBase uint
 	errorCb              BatchErrorCallback
-	retryDelay           uint
-	retryAttempts        uint
 }
 
 // NewService creates new write service
@@ -79,9 +80,6 @@ func NewService(org string, bucket string, httpService http2.Service, options *w
 	params.Set("org", org)
 	params.Set("bucket", bucket)
 	params.Set("precision", precisionToString(options.Precision()))
-	if options.Consistency() != "" {
-		params.Set("consistency", string(options.Consistency()))
-	}
 	u.RawQuery = params.Encode()
 	writeURL := u.String()
 	return &Service{
@@ -92,8 +90,6 @@ func NewService(org string, bucket string, httpService http2.Service, options *w
 		writeOptions:         options,
 		retryQueue:           newQueue(int(retryBufferLimit)),
 		retryExponentialBase: 2,
-		retryDelay:           options.RetryInterval(),
-		retryAttempts:        0,
 	}
 }
 
@@ -105,10 +101,10 @@ func (w *Service) SetBatchErrorCallback(cb BatchErrorCallback) {
 
 // HandleWrite handles writes of batches and handles retrying.
 // Retrying is triggered by new writes, there is no scheduler.
-// It first checks retry queue, because it has the highest priority.
+// It first checks retry queue, cause it has highest priority.
 // If there are some batches in retry queue, those are written and incoming batch is added to end of retry queue.
 // Immediate write is allowed only in case there was success or not retryable error.
-// Otherwise, delay is checked based on recent batch.
+// Otherwise delay is checked based on recent batch.
 // If write of batch fails with retryable error (connection errors and HTTP code >= 429),
 // Batch retry time is calculated based on #of attempts.
 // If writes continues failing and # of attempts reaches maximum or total retry time reaches maxRetryTime,
@@ -128,24 +124,13 @@ func (w *Service) HandleWrite(ctx context.Context, batch *Batch) error {
 			log.Debug("Write proc: taking batch from retry queue")
 			if !retrying {
 				b := w.retryQueue.first()
-
-				// Discard batches at beginning of retryQueue that have already expired
-				if time.Now().After(b.Expires) {
-					log.Error("Write proc: oldest batch in retry queue expired, discarding")
-					if !b.Evicted {
-						w.retryQueue.pop()
-					}
-
-					continue
-				}
-
 				// Can we write? In case of retryable error we must wait a bit
-				if w.lastWriteAttempt.IsZero() || time.Now().After(w.lastWriteAttempt.Add(time.Millisecond*time.Duration(w.retryDelay))) {
+				if w.lastWriteAttempt.IsZero() || time.Now().After(w.lastWriteAttempt.Add(time.Millisecond*time.Duration(b.RetryDelay))) {
 					retrying = true
 				} else {
 					log.Warn("Write proc: cannot write yet, storing batch to queue")
 					if w.retryQueue.push(batch) {
-						log.Error("Write proc: Retry buffer full, discarding oldest batch")
+						log.Warn("Write proc: Retry buffer full, discarding oldest batch")
 					}
 					batchToWrite = nil
 				}
@@ -154,7 +139,7 @@ func (w *Service) HandleWrite(ctx context.Context, batch *Batch) error {
 				batchToWrite = w.retryQueue.first()
 				if batch != nil { //store actual batch to retry queue
 					if w.retryQueue.push(batch) {
-						log.Error("Write proc: Retry buffer full, discarding oldest batch")
+						log.Warn("Write proc: Retry buffer full, discarding oldest batch")
 					}
 					batch = nil
 				}
@@ -162,48 +147,46 @@ func (w *Service) HandleWrite(ctx context.Context, batch *Batch) error {
 		}
 		// write batch
 		if batchToWrite != nil {
+			if time.Now().After(batchToWrite.Expires) {
+				if !batchToWrite.Evicted {
+					w.retryQueue.pop()
+				}
+				return fmt.Errorf("write failed (attempts %d): max retry time exceeded", batchToWrite.RetryAttempts)
+			}
 			perror := w.WriteBatch(ctx, batchToWrite)
 			if perror != nil {
-				if isIgnorableError(perror) {
-					log.Warnf("Write error: %s", perror.Error())
-				} else {
-					if w.writeOptions.MaxRetries() != 0 && (perror.StatusCode == 0 || perror.StatusCode >= http.StatusTooManyRequests) {
-						log.Errorf("Write error: %s, batch kept for retrying\n", perror.Error())
-						if perror.RetryAfter > 0 {
-							w.retryDelay = perror.RetryAfter * 1000
-						} else {
-							w.retryDelay = w.computeRetryDelay(w.retryAttempts)
-						}
-						if w.errorCb != nil && !w.errorCb(batchToWrite, *perror) {
-							log.Error("Callback rejected batch, discarding")
-							if !batchToWrite.Evicted {
-								w.retryQueue.pop()
-							}
-							return perror
-						}
-						// store new batch (not taken from queue)
-						if !batchToWrite.Evicted && batchToWrite != w.retryQueue.first() {
-							if w.retryQueue.push(batch) {
-								log.Error("Retry buffer full, discarding oldest batch")
-							}
-						} else if batchToWrite.RetryAttempts == w.writeOptions.MaxRetries() {
-							log.Error("Reached maximum number of retries, discarding batch")
-							if !batchToWrite.Evicted {
-								w.retryQueue.pop()
-							}
-						}
-						batchToWrite.RetryAttempts++
-						w.retryAttempts++
-						log.Debugf("Write proc: next wait for write is %dms\n", w.retryDelay)
+				if w.writeOptions.MaxRetries() != 0 && (perror.StatusCode == 0 || perror.StatusCode >= http.StatusTooManyRequests) {
+					log.Errorf("Write error: %s\nBatch kept for retrying\n", perror.Error())
+					if perror.RetryAfter > 0 {
+						batchToWrite.RetryDelay = perror.RetryAfter * 1000
 					} else {
-						log.Errorf("Write error: %s\n", perror.Error())
+						batchToWrite.RetryDelay = w.computeRetryDelay(batchToWrite.RetryAttempts)
 					}
-					return fmt.Errorf("write failed (attempts %d): %w", batchToWrite.RetryAttempts, perror)
+					if w.errorCb != nil && !w.errorCb(batchToWrite, *perror) {
+						log.Warn("Callback rejected batch, discarding")
+						if !batchToWrite.Evicted {
+							w.retryQueue.pop()
+						}
+						return perror
+					}
+					// store new batch (not taken from queue)
+					if !batchToWrite.Evicted && batchToWrite != w.retryQueue.first() {
+						if w.retryQueue.push(batch) {
+							log.Warn("Retry buffer full, discarding oldest batch")
+						}
+					} else if batchToWrite.RetryAttempts == w.writeOptions.MaxRetries() {
+						log.Warn("Reached maximum number of retries, discarding batch")
+						if !batchToWrite.Evicted {
+							w.retryQueue.pop()
+						}
+					}
+					batchToWrite.RetryAttempts++
+					log.Debugf("Write proc: next wait for write is %dms\n", batchToWrite.RetryDelay)
+				} else {
+					log.Errorf("Write error: %s\n", perror.Error())
 				}
+				return fmt.Errorf("write failed (attempts %d): %w", batchToWrite.RetryAttempts, perror)
 			}
-
-			w.retryDelay = w.writeOptions.RetryInterval()
-			w.retryAttempts = 0
 			if retrying && !batchToWrite.Evicted {
 				w.retryQueue.pop()
 			}
@@ -215,51 +198,13 @@ func (w *Service) HandleWrite(ctx context.Context, batch *Batch) error {
 	return nil
 }
 
-// Non-retryable errors
-const (
-	errStringHintedHandoffNotEmpty = "hinted handoff queue not empty"
-	errStringPartialWrite          = "partial write"
-	errStringPointsBeyondRP        = "points beyond retention policy"
-	errStringUnableToParse         = "unable to parse"
-)
-
-func isIgnorableError(error *http2.Error) bool {
-	// This "error" is an informational message about the state of the
-	// InfluxDB cluster.
-	if strings.Contains(error.Message, errStringHintedHandoffNotEmpty) {
-		return true
-	}
-	// Points beyond retention policy is returned when points are immediately
-	// discarded for being older than the retention policy.  Usually this not
-	// a cause for concern, and we don't want to retry.
-	if strings.Contains(error.Message, errStringPointsBeyondRP) {
-		return true
-	}
-	// Other partial write errors, such as "field type conflict", are not
-	// correctable at this point and so the point is dropped instead of
-	// retrying.
-	if strings.Contains(error.Message, errStringPartialWrite) {
-		return true
-	}
-	// This error indicates an error in line protocol
-	// serialization, retries would not be successful.
-	if strings.Contains(error.Message, errStringUnableToParse) {
-		return true
-	}
-	return false
-}
-
-// computeRetryDelay calculates retry delay.
+// computeRetryDelay calculates retry delay
 // Retry delay is calculated as random value within the interval
 // [retry_interval * exponential_base^(attempts) and retry_interval * exponential_base^(attempts+1)]
 func (w *Service) computeRetryDelay(attempts uint) uint {
 	minDelay := int(w.writeOptions.RetryInterval() * pow(w.writeOptions.ExponentialBase(), attempts))
 	maxDelay := int(w.writeOptions.RetryInterval() * pow(w.writeOptions.ExponentialBase(), attempts+1))
-	diff := maxDelay - minDelay
-	if diff <= 0 { //check overflows
-		return w.writeOptions.MaxRetryInterval()
-	}
-	retryDelay := uint(rand.Intn(diff) + minDelay)
+	retryDelay := uint(rand.Intn(maxDelay-minDelay) + minDelay)
 	if retryDelay > w.writeOptions.MaxRetryInterval() {
 		retryDelay = w.writeOptions.MaxRetryInterval()
 	}
@@ -304,20 +249,6 @@ func (w *Service) WriteBatch(ctx context.Context, batch *Batch) *http2.Error {
 		return r.Body.Close()
 	})
 	return perror
-}
-
-// Flush sends batches from retry queue immediately, without retrying
-func (w *Service) Flush() {
-	for !w.retryQueue.isEmpty() {
-		b := w.retryQueue.pop()
-		if time.Now().After(b.Expires) {
-			log.Error("Oldest batch in retry queue expired, discarding")
-			continue
-		}
-		if err := w.WriteBatch(context.Background(), b); err != nil {
-			log.Errorf("Error flushing batch from retry queue: %w", err.Unwrap())
-		}
-	}
 }
 
 // pointWithDefaultTags encapsulates Point with default tags
@@ -414,4 +345,11 @@ func precisionToString(precision time.Duration) string {
 		prec = "s"
 	}
 	return prec
+}
+
+func min(a, b uint) uint {
+	if a > b {
+		return b
+	}
+	return a
 }
