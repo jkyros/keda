@@ -61,11 +61,11 @@ type OrganizationsAPI interface {
 
 // organizationsAPI implements OrganizationsAPI
 type organizationsAPI struct {
-	apiClient *domain.Client
+	apiClient *domain.ClientWithResponses
 }
 
 // NewOrganizationsAPI creates new instance of OrganizationsAPI
-func NewOrganizationsAPI(apiClient *domain.Client) OrganizationsAPI {
+func NewOrganizationsAPI(apiClient *domain.ClientWithResponses) OrganizationsAPI {
 	return &organizationsAPI{
 		apiClient: apiClient,
 	}
@@ -81,11 +81,14 @@ func (o *organizationsAPI) getOrganizations(ctx context.Context, params *domain.
 	}
 	params.Offset = &options.offset
 	params.Descending = &options.descending
-	response, err := o.apiClient.GetOrgs(ctx, params)
+	response, err := o.apiClient.GetOrgsWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return response.Orgs, nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200.Orgs, nil
 }
 func (o *organizationsAPI) GetOrganizations(ctx context.Context, pagingOptions ...PagingOption) (*[]domain.Organization, error) {
 	params := &domain.GetOrgsParams{}
@@ -105,10 +108,15 @@ func (o *organizationsAPI) FindOrganizationByName(ctx context.Context, orgName s
 }
 
 func (o *organizationsAPI) FindOrganizationByID(ctx context.Context, orgID string) (*domain.Organization, error) {
-	params := &domain.GetOrgsIDAllParams{
-		OrgID: orgID,
+	params := &domain.GetOrgsIDParams{}
+	response, err := o.apiClient.GetOrgsIDWithResponse(ctx, orgID, params)
+	if err != nil {
+		return nil, err
 	}
-	return o.apiClient.GetOrgsID(ctx, params)
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200, nil
 }
 
 func (o *organizationsAPI) FindOrganizationsByUserID(ctx context.Context, userID string, pagingOptions ...PagingOption) (*[]domain.Organization, error) {
@@ -117,13 +125,19 @@ func (o *organizationsAPI) FindOrganizationsByUserID(ctx context.Context, userID
 }
 
 func (o *organizationsAPI) CreateOrganization(ctx context.Context, org *domain.Organization) (*domain.Organization, error) {
-	params := &domain.PostOrgsAllParams{
-		Body: domain.PostOrgsJSONRequestBody{
-			Name:        org.Name,
-			Description: org.Description,
-		},
+	params := &domain.PostOrgsParams{}
+	req := domain.PostOrgsJSONRequestBody{
+		Name:        org.Name,
+		Description: org.Description,
 	}
-	return o.apiClient.PostOrgs(ctx, params)
+	response, err := o.apiClient.PostOrgsWithResponse(ctx, params, req)
+	if err != nil {
+		return nil, err
+	}
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON201, nil
 }
 
 func (o *organizationsAPI) CreateOrganizationWithName(ctx context.Context, orgName string) (*domain.Organization, error) {
@@ -137,21 +151,34 @@ func (o *organizationsAPI) DeleteOrganization(ctx context.Context, org *domain.O
 }
 
 func (o *organizationsAPI) DeleteOrganizationWithID(ctx context.Context, orgID string) error {
-	params := &domain.DeleteOrgsIDAllParams{
-		OrgID: orgID,
+	params := &domain.DeleteOrgsIDParams{}
+	response, err := o.apiClient.DeleteOrgsIDWithResponse(ctx, orgID, params)
+	if err != nil {
+		return err
 	}
-	return o.apiClient.DeleteOrgsID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	if response.JSON404 != nil {
+		return domain.ErrorToHTTPError(response.JSON404, response.StatusCode())
+	}
+	return nil
 }
 
 func (o *organizationsAPI) UpdateOrganization(ctx context.Context, org *domain.Organization) (*domain.Organization, error) {
-	params := &domain.PatchOrgsIDAllParams{
-		Body: domain.PatchOrgsIDJSONRequestBody{
-			Name:        &org.Name,
-			Description: org.Description,
-		},
-		OrgID: *org.Id,
+	params := &domain.PatchOrgsIDParams{}
+	req := domain.PatchOrgsIDJSONRequestBody{
+		Name:        &org.Name,
+		Description: org.Description,
 	}
-	return o.apiClient.PatchOrgsID(ctx, params)
+	response, err := o.apiClient.PatchOrgsIDWithResponse(ctx, *org.Id, params, req)
+	if err != nil {
+		return nil, err
+	}
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200, nil
 }
 
 func (o *organizationsAPI) GetMembers(ctx context.Context, org *domain.Organization) (*[]domain.ResourceMember, error) {
@@ -159,14 +186,18 @@ func (o *organizationsAPI) GetMembers(ctx context.Context, org *domain.Organizat
 }
 
 func (o *organizationsAPI) GetMembersWithID(ctx context.Context, orgID string) (*[]domain.ResourceMember, error) {
-	params := &domain.GetOrgsIDMembersAllParams{
-		OrgID: orgID,
-	}
-	response, err := o.apiClient.GetOrgsIDMembers(ctx, params)
+	params := &domain.GetOrgsIDMembersParams{}
+	response, err := o.apiClient.GetOrgsIDMembersWithResponse(ctx, orgID, params)
 	if err != nil {
 		return nil, err
 	}
-	return response.Users, nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	if response.JSON404 != nil {
+		return nil, domain.ErrorToHTTPError(response.JSON404, response.StatusCode())
+	}
+	return response.JSON200.Users, nil
 }
 
 func (o *organizationsAPI) AddMember(ctx context.Context, org *domain.Organization, user *domain.User) (*domain.ResourceMember, error) {
@@ -174,11 +205,16 @@ func (o *organizationsAPI) AddMember(ctx context.Context, org *domain.Organizati
 }
 
 func (o *organizationsAPI) AddMemberWithID(ctx context.Context, orgID, memberID string) (*domain.ResourceMember, error) {
-	params := &domain.PostOrgsIDMembersAllParams{
-		Body:  domain.PostOrgsIDMembersJSONRequestBody{Id: memberID},
-		OrgID: orgID,
+	params := &domain.PostOrgsIDMembersParams{}
+	body := &domain.PostOrgsIDMembersJSONRequestBody{Id: memberID}
+	response, err := o.apiClient.PostOrgsIDMembersWithResponse(ctx, orgID, params, *body)
+	if err != nil {
+		return nil, err
 	}
-	return o.apiClient.PostOrgsIDMembers(ctx, params)
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON201, nil
 }
 
 func (o *organizationsAPI) RemoveMember(ctx context.Context, org *domain.Organization, user *domain.User) error {
@@ -186,11 +222,15 @@ func (o *organizationsAPI) RemoveMember(ctx context.Context, org *domain.Organiz
 }
 
 func (o *organizationsAPI) RemoveMemberWithID(ctx context.Context, orgID, memberID string) error {
-	params := &domain.DeleteOrgsIDMembersIDAllParams{
-		OrgID:  orgID,
-		UserID: memberID,
+	params := &domain.DeleteOrgsIDMembersIDParams{}
+	response, err := o.apiClient.DeleteOrgsIDMembersIDWithResponse(ctx, orgID, memberID, params)
+	if err != nil {
+		return err
 	}
-	return o.apiClient.DeleteOrgsIDMembersID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }
 
 func (o *organizationsAPI) GetOwners(ctx context.Context, org *domain.Organization) (*[]domain.ResourceOwner, error) {
@@ -198,14 +238,18 @@ func (o *organizationsAPI) GetOwners(ctx context.Context, org *domain.Organizati
 }
 
 func (o *organizationsAPI) GetOwnersWithID(ctx context.Context, orgID string) (*[]domain.ResourceOwner, error) {
-	params := &domain.GetOrgsIDOwnersAllParams{
-		OrgID: orgID,
-	}
-	response, err := o.apiClient.GetOrgsIDOwners(ctx, params)
+	params := &domain.GetOrgsIDOwnersParams{}
+	response, err := o.apiClient.GetOrgsIDOwnersWithResponse(ctx, orgID, params)
 	if err != nil {
 		return nil, err
 	}
-	return response.Users, nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	if response.JSON404 != nil {
+		return nil, domain.ErrorToHTTPError(response.JSON404, response.StatusCode())
+	}
+	return response.JSON200.Users, nil
 }
 
 func (o *organizationsAPI) AddOwner(ctx context.Context, org *domain.Organization, user *domain.User) (*domain.ResourceOwner, error) {
@@ -213,11 +257,16 @@ func (o *organizationsAPI) AddOwner(ctx context.Context, org *domain.Organizatio
 }
 
 func (o *organizationsAPI) AddOwnerWithID(ctx context.Context, orgID, memberID string) (*domain.ResourceOwner, error) {
-	params := &domain.PostOrgsIDOwnersAllParams{
-		Body:  domain.PostOrgsIDOwnersJSONRequestBody{Id: memberID},
-		OrgID: orgID,
+	params := &domain.PostOrgsIDOwnersParams{}
+	body := &domain.PostOrgsIDOwnersJSONRequestBody{Id: memberID}
+	response, err := o.apiClient.PostOrgsIDOwnersWithResponse(ctx, orgID, params, *body)
+	if err != nil {
+		return nil, err
 	}
-	return o.apiClient.PostOrgsIDOwners(ctx, params)
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON201, nil
 }
 
 func (o *organizationsAPI) RemoveOwner(ctx context.Context, org *domain.Organization, user *domain.User) error {
@@ -225,9 +274,13 @@ func (o *organizationsAPI) RemoveOwner(ctx context.Context, org *domain.Organiza
 }
 
 func (o *organizationsAPI) RemoveOwnerWithID(ctx context.Context, orgID, memberID string) error {
-	params := &domain.DeleteOrgsIDOwnersIDAllParams{
-		OrgID:  orgID,
-		UserID: memberID,
+	params := &domain.DeleteOrgsIDOwnersIDParams{}
+	response, err := o.apiClient.DeleteOrgsIDOwnersIDWithResponse(ctx, orgID, memberID, params)
+	if err != nil {
+		return err
 	}
-	return o.apiClient.DeleteOrgsIDOwnersID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }

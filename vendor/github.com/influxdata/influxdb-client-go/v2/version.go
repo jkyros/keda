@@ -13,9 +13,9 @@ import (
 
 const (
 	// Version defines current version
-	Version = "2.13.0"
+	Version = "2.7.0"
 )
 
 func init() {
-	http.UserAgentBase = fmt.Sprintf("influxdb-client-go/%s (%s; %s)", Version, runtime.GOOS, runtime.GOARCH)
+	http.UserAgent = fmt.Sprintf("influxdb-client-go/%s  (%s; %s)", Version, runtime.GOOS, runtime.GOARCH)
 }

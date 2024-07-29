@@ -38,11 +38,11 @@ type AuthorizationsAPI interface {
 
 // authorizationsAPI implements AuthorizationsAPI
 type authorizationsAPI struct {
-	apiClient *domain.Client
+	apiClient *domain.ClientWithResponses
 }
 
 // NewAuthorizationsAPI creates new instance of AuthorizationsAPI
-func NewAuthorizationsAPI(apiClient *domain.Client) AuthorizationsAPI {
+func NewAuthorizationsAPI(apiClient *domain.ClientWithResponses) AuthorizationsAPI {
 	return &authorizationsAPI{
 		apiClient: apiClient,
 	}
@@ -74,23 +74,35 @@ func (a *authorizationsAPI) FindAuthorizationsByOrgID(ctx context.Context, orgID
 }
 
 func (a *authorizationsAPI) listAuthorizations(ctx context.Context, query *domain.GetAuthorizationsParams) (*[]domain.Authorization, error) {
-	response, err := a.apiClient.GetAuthorizations(ctx, query)
+	response, err := a.apiClient.GetAuthorizationsWithResponse(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	return response.Authorizations, nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200.Authorizations, nil
 }
 
 func (a *authorizationsAPI) CreateAuthorization(ctx context.Context, authorization *domain.Authorization) (*domain.Authorization, error) {
-	params := &domain.PostAuthorizationsAllParams{
-		Body: domain.PostAuthorizationsJSONRequestBody{
-			AuthorizationUpdateRequest: authorization.AuthorizationUpdateRequest,
-			OrgID:                      authorization.OrgID,
-			Permissions:                authorization.Permissions,
-			UserID:                     authorization.UserID,
-		},
+	params := &domain.PostAuthorizationsParams{}
+	req := domain.PostAuthorizationsJSONRequestBody{
+		AuthorizationUpdateRequest: authorization.AuthorizationUpdateRequest,
+		OrgID:                      authorization.OrgID,
+		Permissions:                authorization.Permissions,
+		UserID:                     authorization.UserID,
 	}
-	return a.apiClient.PostAuthorizations(ctx, params)
+	response, err := a.apiClient.PostAuthorizationsWithResponse(ctx, params, req)
+	if err != nil {
+		return nil, err
+	}
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	if response.JSON400 != nil {
+		return nil, domain.ErrorToHTTPError(response.JSON400, response.StatusCode())
+	}
+	return response.JSON201, nil
 }
 
 func (a *authorizationsAPI) CreateAuthorizationWithOrgID(ctx context.Context, orgID string, permissions []domain.Permission) (*domain.Authorization, error) {
@@ -104,11 +116,16 @@ func (a *authorizationsAPI) CreateAuthorizationWithOrgID(ctx context.Context, or
 }
 
 func (a *authorizationsAPI) UpdateAuthorizationStatusWithID(ctx context.Context, authID string, status domain.AuthorizationUpdateRequestStatus) (*domain.Authorization, error) {
-	params := &domain.PatchAuthorizationsIDAllParams{
-		Body:   domain.PatchAuthorizationsIDJSONRequestBody{Status: &status},
-		AuthID: authID,
+	params := &domain.PatchAuthorizationsIDParams{}
+	body := &domain.PatchAuthorizationsIDJSONRequestBody{Status: &status}
+	response, err := a.apiClient.PatchAuthorizationsIDWithResponse(ctx, authID, params, *body)
+	if err != nil {
+		return nil, err
 	}
-	return a.apiClient.PatchAuthorizationsID(ctx, params)
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200, nil
 }
 
 func (a *authorizationsAPI) UpdateAuthorizationStatus(ctx context.Context, authorization *domain.Authorization, status domain.AuthorizationUpdateRequestStatus) (*domain.Authorization, error) {
@@ -120,8 +137,13 @@ func (a *authorizationsAPI) DeleteAuthorization(ctx context.Context, authorizati
 }
 
 func (a *authorizationsAPI) DeleteAuthorizationWithID(ctx context.Context, authID string) error {
-	params := &domain.DeleteAuthorizationsIDAllParams{
-		AuthID: authID,
+	params := &domain.DeleteAuthorizationsIDParams{}
+	response, err := a.apiClient.DeleteAuthorizationsIDWithResponse(ctx, authID, params)
+	if err != nil {
+		return err
 	}
-	return a.apiClient.DeleteAuthorizationsID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }

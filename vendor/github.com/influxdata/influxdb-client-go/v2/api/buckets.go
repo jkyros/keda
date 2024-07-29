@@ -64,11 +64,11 @@ type BucketsAPI interface {
 
 // bucketsAPI implements BucketsAPI
 type bucketsAPI struct {
-	apiClient *domain.Client
+	apiClient *domain.ClientWithResponses
 }
 
 // NewBucketsAPI creates new instance of BucketsAPI
-func NewBucketsAPI(apiClient *domain.Client) BucketsAPI {
+func NewBucketsAPI(apiClient *domain.ClientWithResponses) BucketsAPI {
 	return &bucketsAPI{
 		apiClient: apiClient,
 	}
@@ -91,30 +91,41 @@ func (b *bucketsAPI) getBuckets(ctx context.Context, params *domain.GetBucketsPa
 	}
 	params.Offset = &options.offset
 
-	response, err := b.apiClient.GetBuckets(ctx, params)
+	response, err := b.apiClient.GetBucketsWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return response.Buckets, nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200.Buckets, nil
 }
 
 func (b *bucketsAPI) FindBucketByName(ctx context.Context, bucketName string) (*domain.Bucket, error) {
 	params := &domain.GetBucketsParams{Name: &bucketName}
-	response, err := b.apiClient.GetBuckets(ctx, params)
+	response, err := b.apiClient.GetBucketsWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	if response.Buckets != nil && len(*response.Buckets) > 0 {
-		return &(*response.Buckets)[0], nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	if response.JSON200.Buckets != nil && len(*response.JSON200.Buckets) > 0 {
+		return &(*response.JSON200.Buckets)[0], nil
 	}
 	return nil, fmt.Errorf("bucket '%s' not found", bucketName)
 }
 
 func (b *bucketsAPI) FindBucketByID(ctx context.Context, bucketID string) (*domain.Bucket, error) {
-	params := &domain.GetBucketsIDAllParams{
-		BucketID: bucketID,
+	params := &domain.GetBucketsIDParams{}
+	response, err := b.apiClient.GetBucketsIDWithResponse(ctx, bucketID, params)
+	if err != nil {
+		return nil, err
 	}
-	return b.apiClient.GetBucketsID(ctx, params)
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200, nil
 }
 
 func (b *bucketsAPI) FindBucketsByOrgID(ctx context.Context, orgID string, pagingOptions ...PagingOption) (*[]domain.Bucket, error) {
@@ -128,10 +139,18 @@ func (b *bucketsAPI) FindBucketsByOrgName(ctx context.Context, orgName string, p
 }
 
 func (b *bucketsAPI) createBucket(ctx context.Context, bucketReq *domain.PostBucketRequest) (*domain.Bucket, error) {
-	params := &domain.PostBucketsAllParams{
-		Body: domain.PostBucketsJSONRequestBody(*bucketReq),
+	params := &domain.PostBucketsParams{}
+	response, err := b.apiClient.PostBucketsWithResponse(ctx, params, domain.PostBucketsJSONRequestBody(*bucketReq))
+	if err != nil {
+		return nil, err
 	}
-	return b.apiClient.PostBuckets(ctx, params)
+	if response.JSON422 != nil {
+		return nil, domain.ErrorToHTTPError(response.JSON422, response.StatusCode())
+	}
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON201, nil
 }
 
 func (b *bucketsAPI) CreateBucket(ctx context.Context, bucket *domain.Bucket) (*domain.Bucket, error) {
@@ -139,15 +158,14 @@ func (b *bucketsAPI) CreateBucket(ctx context.Context, bucket *domain.Bucket) (*
 		Description:    bucket.Description,
 		Name:           bucket.Name,
 		OrgID:          *bucket.OrgID,
-		RetentionRules: &bucket.RetentionRules,
+		RetentionRules: bucket.RetentionRules,
 		Rp:             bucket.Rp,
 	}
 	return b.createBucket(ctx, bucketReq)
 }
 
 func (b *bucketsAPI) CreateBucketWithNameWithID(ctx context.Context, orgID, bucketName string, rules ...domain.RetentionRule) (*domain.Bucket, error) {
-	rs := domain.RetentionRules(rules)
-	bucket := &domain.PostBucketRequest{Name: bucketName, OrgID: orgID, RetentionRules: &rs}
+	bucket := &domain.PostBucketRequest{Name: bucketName, OrgID: orgID, RetentionRules: rules}
 	return b.createBucket(ctx, bucket)
 }
 func (b *bucketsAPI) CreateBucketWithName(ctx context.Context, org *domain.Organization, bucketName string, rules ...domain.RetentionRule) (*domain.Bucket, error) {
@@ -159,22 +177,35 @@ func (b *bucketsAPI) DeleteBucket(ctx context.Context, bucket *domain.Bucket) er
 }
 
 func (b *bucketsAPI) DeleteBucketWithID(ctx context.Context, bucketID string) error {
-	params := &domain.DeleteBucketsIDAllParams{
-		BucketID: bucketID,
+	params := &domain.DeleteBucketsIDParams{}
+	response, err := b.apiClient.DeleteBucketsIDWithResponse(ctx, bucketID, params)
+	if err != nil {
+		return err
 	}
-	return b.apiClient.DeleteBucketsID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	if response.JSON404 != nil {
+		return domain.ErrorToHTTPError(response.JSON404, response.StatusCode())
+	}
+	return nil
 }
 
 func (b *bucketsAPI) UpdateBucket(ctx context.Context, bucket *domain.Bucket) (*domain.Bucket, error) {
-	params := &domain.PatchBucketsIDAllParams{
-		Body: domain.PatchBucketsIDJSONRequestBody{
-			Description:    bucket.Description,
-			Name:           &bucket.Name,
-			RetentionRules: retentionRulesToPatchRetentionRules(&bucket.RetentionRules),
-		},
-		BucketID: *bucket.Id,
+	params := &domain.PatchBucketsIDParams{}
+	req := domain.PatchBucketsIDJSONRequestBody{
+		Description:    bucket.Description,
+		Name:           &bucket.Name,
+		RetentionRules: retentionRulesToPatchRetentionRules(&bucket.RetentionRules),
 	}
-	return b.apiClient.PatchBucketsID(ctx, params)
+	response, err := b.apiClient.PatchBucketsIDWithResponse(ctx, *bucket.Id, params, req)
+	if err != nil {
+		return nil, err
+	}
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200, nil
 }
 
 func (b *bucketsAPI) GetMembers(ctx context.Context, bucket *domain.Bucket) (*[]domain.ResourceMember, error) {
@@ -182,14 +213,15 @@ func (b *bucketsAPI) GetMembers(ctx context.Context, bucket *domain.Bucket) (*[]
 }
 
 func (b *bucketsAPI) GetMembersWithID(ctx context.Context, bucketID string) (*[]domain.ResourceMember, error) {
-	params := &domain.GetBucketsIDMembersAllParams{
-		BucketID: bucketID,
-	}
-	response, err := b.apiClient.GetBucketsIDMembers(ctx, params)
+	params := &domain.GetBucketsIDMembersParams{}
+	response, err := b.apiClient.GetBucketsIDMembersWithResponse(ctx, bucketID, params)
 	if err != nil {
 		return nil, err
 	}
-	return response.Users, nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200.Users, nil
 }
 
 func (b *bucketsAPI) AddMember(ctx context.Context, bucket *domain.Bucket, user *domain.User) (*domain.ResourceMember, error) {
@@ -197,11 +229,16 @@ func (b *bucketsAPI) AddMember(ctx context.Context, bucket *domain.Bucket, user 
 }
 
 func (b *bucketsAPI) AddMemberWithID(ctx context.Context, bucketID, memberID string) (*domain.ResourceMember, error) {
-	params := &domain.PostBucketsIDMembersAllParams{
-		BucketID: bucketID,
-		Body:     domain.PostBucketsIDMembersJSONRequestBody{Id: memberID},
+	params := &domain.PostBucketsIDMembersParams{}
+	body := &domain.PostBucketsIDMembersJSONRequestBody{Id: memberID}
+	response, err := b.apiClient.PostBucketsIDMembersWithResponse(ctx, bucketID, params, *body)
+	if err != nil {
+		return nil, err
 	}
-	return b.apiClient.PostBucketsIDMembers(ctx, params)
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON201, nil
 }
 
 func (b *bucketsAPI) RemoveMember(ctx context.Context, bucket *domain.Bucket, user *domain.User) error {
@@ -209,11 +246,15 @@ func (b *bucketsAPI) RemoveMember(ctx context.Context, bucket *domain.Bucket, us
 }
 
 func (b *bucketsAPI) RemoveMemberWithID(ctx context.Context, bucketID, memberID string) error {
-	params := &domain.DeleteBucketsIDMembersIDAllParams{
-		BucketID: bucketID,
-		UserID:   memberID,
+	params := &domain.DeleteBucketsIDMembersIDParams{}
+	response, err := b.apiClient.DeleteBucketsIDMembersIDWithResponse(ctx, bucketID, memberID, params)
+	if err != nil {
+		return err
 	}
-	return b.apiClient.DeleteBucketsIDMembersID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }
 
 func (b *bucketsAPI) GetOwners(ctx context.Context, bucket *domain.Bucket) (*[]domain.ResourceOwner, error) {
@@ -221,14 +262,15 @@ func (b *bucketsAPI) GetOwners(ctx context.Context, bucket *domain.Bucket) (*[]d
 }
 
 func (b *bucketsAPI) GetOwnersWithID(ctx context.Context, bucketID string) (*[]domain.ResourceOwner, error) {
-	params := &domain.GetBucketsIDOwnersAllParams{
-		BucketID: bucketID,
-	}
-	response, err := b.apiClient.GetBucketsIDOwners(ctx, params)
+	params := &domain.GetBucketsIDOwnersParams{}
+	response, err := b.apiClient.GetBucketsIDOwnersWithResponse(ctx, bucketID, params)
 	if err != nil {
 		return nil, err
 	}
-	return response.Users, nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON200.Users, nil
 }
 
 func (b *bucketsAPI) AddOwner(ctx context.Context, bucket *domain.Bucket, user *domain.User) (*domain.ResourceOwner, error) {
@@ -236,11 +278,16 @@ func (b *bucketsAPI) AddOwner(ctx context.Context, bucket *domain.Bucket, user *
 }
 
 func (b *bucketsAPI) AddOwnerWithID(ctx context.Context, bucketID, memberID string) (*domain.ResourceOwner, error) {
-	params := &domain.PostBucketsIDOwnersAllParams{
-		BucketID: bucketID,
-		Body:     domain.PostBucketsIDOwnersJSONRequestBody{Id: memberID},
+	params := &domain.PostBucketsIDOwnersParams{}
+	body := &domain.PostBucketsIDOwnersJSONRequestBody{Id: memberID}
+	response, err := b.apiClient.PostBucketsIDOwnersWithResponse(ctx, bucketID, params, *body)
+	if err != nil {
+		return nil, err
 	}
-	return b.apiClient.PostBucketsIDOwners(ctx, params)
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return response.JSON201, nil
 }
 
 func (b *bucketsAPI) RemoveOwner(ctx context.Context, bucket *domain.Bucket, user *domain.User) error {
@@ -248,11 +295,15 @@ func (b *bucketsAPI) RemoveOwner(ctx context.Context, bucket *domain.Bucket, use
 }
 
 func (b *bucketsAPI) RemoveOwnerWithID(ctx context.Context, bucketID, memberID string) error {
-	params := &domain.DeleteBucketsIDOwnersIDAllParams{
-		BucketID: bucketID,
-		UserID:   memberID,
+	params := &domain.DeleteBucketsIDOwnersIDParams{}
+	response, err := b.apiClient.DeleteBucketsIDOwnersIDWithResponse(ctx, bucketID, memberID, params)
+	if err != nil {
+		return err
 	}
-	return b.apiClient.DeleteBucketsIDOwnersID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }
 
 func retentionRulesToPatchRetentionRules(rrs *domain.RetentionRules) *domain.PatchRetentionRules {
@@ -262,12 +313,9 @@ func retentionRulesToPatchRetentionRules(rrs *domain.RetentionRules) *domain.Pat
 	prrs := make([]domain.PatchRetentionRule, len(*rrs))
 	for i, rr := range *rrs {
 		prrs[i] = domain.PatchRetentionRule{
-			EverySeconds:              rr.EverySeconds,
+			EverySeconds:              &rr.EverySeconds,
 			ShardGroupDurationSeconds: rr.ShardGroupDurationSeconds,
-		}
-		if rr.Type != nil {
-			rrt := domain.PatchRetentionRuleType(*rr.Type)
-			prrs[i].Type = &rrt
+			Type:                      domain.PatchRetentionRuleType(rr.Type),
 		}
 	}
 	dprrs := domain.PatchRetentionRules(prrs)

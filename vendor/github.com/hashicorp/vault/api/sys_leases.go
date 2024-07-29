@@ -1,23 +1,12 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: MPL-2.0
-
 package api
 
 import (
 	"context"
 	"errors"
-	"net/http"
 )
 
 func (c *Sys) Renew(id string, increment int) (*Secret, error) {
-	return c.RenewWithContext(context.Background(), id, increment)
-}
-
-func (c *Sys) RenewWithContext(ctx context.Context, id string, increment int) (*Secret, error) {
-	ctx, cancelFunc := c.c.withConfiguredTimeout(ctx)
-	defer cancelFunc()
-
-	r := c.c.NewRequest(http.MethodPut, "/v1/sys/leases/renew")
+	r := c.c.NewRequest("PUT", "/v1/sys/leases/renew")
 
 	body := map[string]interface{}{
 		"increment": increment,
@@ -27,7 +16,9 @@ func (c *Sys) RenewWithContext(ctx context.Context, id string, increment int) (*
 		return nil, err
 	}
 
-	resp, err := c.c.rawRequestWithContext(ctx, r)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+	resp, err := c.c.RawRequestWithContext(ctx, r)
 	if err != nil {
 		return nil, err
 	}
@@ -37,14 +28,7 @@ func (c *Sys) RenewWithContext(ctx context.Context, id string, increment int) (*
 }
 
 func (c *Sys) Lookup(id string) (*Secret, error) {
-	return c.LookupWithContext(context.Background(), id)
-}
-
-func (c *Sys) LookupWithContext(ctx context.Context, id string) (*Secret, error) {
-	ctx, cancelFunc := c.c.withConfiguredTimeout(ctx)
-	defer cancelFunc()
-
-	r := c.c.NewRequest(http.MethodPut, "/v1/sys/leases/lookup")
+	r := c.c.NewRequest("PUT", "/v1/sys/leases/lookup")
 
 	body := map[string]interface{}{
 		"lease_id": id,
@@ -53,7 +37,9 @@ func (c *Sys) LookupWithContext(ctx context.Context, id string) (*Secret, error)
 		return nil, err
 	}
 
-	resp, err := c.c.rawRequestWithContext(ctx, r)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+	resp, err := c.c.RawRequestWithContext(ctx, r)
 	if err != nil {
 		return nil, err
 	}
@@ -63,14 +49,7 @@ func (c *Sys) LookupWithContext(ctx context.Context, id string) (*Secret, error)
 }
 
 func (c *Sys) Revoke(id string) error {
-	return c.RevokeWithContext(context.Background(), id)
-}
-
-func (c *Sys) RevokeWithContext(ctx context.Context, id string) error {
-	ctx, cancelFunc := c.c.withConfiguredTimeout(ctx)
-	defer cancelFunc()
-
-	r := c.c.NewRequest(http.MethodPut, "/v1/sys/leases/revoke")
+	r := c.c.NewRequest("PUT", "/v1/sys/leases/revoke")
 	body := map[string]interface{}{
 		"lease_id": id,
 	}
@@ -78,7 +57,9 @@ func (c *Sys) RevokeWithContext(ctx context.Context, id string) error {
 		return err
 	}
 
-	resp, err := c.c.rawRequestWithContext(ctx, r)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+	resp, err := c.c.RawRequestWithContext(ctx, r)
 	if err == nil {
 		defer resp.Body.Close()
 	}
@@ -86,16 +67,11 @@ func (c *Sys) RevokeWithContext(ctx context.Context, id string) error {
 }
 
 func (c *Sys) RevokePrefix(id string) error {
-	return c.RevokePrefixWithContext(context.Background(), id)
-}
+	r := c.c.NewRequest("PUT", "/v1/sys/leases/revoke-prefix/"+id)
 
-func (c *Sys) RevokePrefixWithContext(ctx context.Context, id string) error {
-	ctx, cancelFunc := c.c.withConfiguredTimeout(ctx)
+	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
-
-	r := c.c.NewRequest(http.MethodPut, "/v1/sys/leases/revoke-prefix/"+id)
-
-	resp, err := c.c.rawRequestWithContext(ctx, r)
+	resp, err := c.c.RawRequestWithContext(ctx, r)
 	if err == nil {
 		defer resp.Body.Close()
 	}
@@ -103,16 +79,11 @@ func (c *Sys) RevokePrefixWithContext(ctx context.Context, id string) error {
 }
 
 func (c *Sys) RevokeForce(id string) error {
-	return c.RevokeForceWithContext(context.Background(), id)
-}
+	r := c.c.NewRequest("PUT", "/v1/sys/leases/revoke-force/"+id)
 
-func (c *Sys) RevokeForceWithContext(ctx context.Context, id string) error {
-	ctx, cancelFunc := c.c.withConfiguredTimeout(ctx)
+	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
-
-	r := c.c.NewRequest(http.MethodPut, "/v1/sys/leases/revoke-force/"+id)
-
-	resp, err := c.c.rawRequestWithContext(ctx, r)
+	resp, err := c.c.RawRequestWithContext(ctx, r)
 	if err == nil {
 		defer resp.Body.Close()
 	}
@@ -120,13 +91,6 @@ func (c *Sys) RevokeForceWithContext(ctx context.Context, id string) error {
 }
 
 func (c *Sys) RevokeWithOptions(opts *RevokeOptions) error {
-	return c.RevokeWithOptionsWithContext(context.Background(), opts)
-}
-
-func (c *Sys) RevokeWithOptionsWithContext(ctx context.Context, opts *RevokeOptions) error {
-	ctx, cancelFunc := c.c.withConfiguredTimeout(ctx)
-	defer cancelFunc()
-
 	if opts == nil {
 		return errors.New("nil options provided")
 	}
@@ -141,7 +105,7 @@ func (c *Sys) RevokeWithOptionsWithContext(ctx context.Context, opts *RevokeOpti
 	}
 	path += opts.LeaseID
 
-	r := c.c.NewRequest(http.MethodPut, path)
+	r := c.c.NewRequest("PUT", path)
 	if !opts.Force {
 		body := map[string]interface{}{
 			"sync": opts.Sync,
@@ -151,7 +115,9 @@ func (c *Sys) RevokeWithOptionsWithContext(ctx context.Context, opts *RevokeOpti
 		}
 	}
 
-	resp, err := c.c.rawRequestWithContext(ctx, r)
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+	resp, err := c.c.RawRequestWithContext(ctx, r)
 	if err == nil {
 		defer resp.Body.Close()
 	}

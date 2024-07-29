@@ -31,9 +31,9 @@ type UsersAPI interface {
 	CreateUserWithName(ctx context.Context, userName string) (*domain.User, error)
 	// UpdateUser updates user
 	UpdateUser(ctx context.Context, user *domain.User) (*domain.User, error)
-	// UpdateUserPassword sets password for a user
+	// UpdateUserPassword sets password for an user
 	UpdateUserPassword(ctx context.Context, user *domain.User, password string) error
-	// UpdateUserPasswordWithID sets password for a user with userID
+	// UpdateUserPasswordWithID sets password for an user with userID
 	UpdateUserPasswordWithID(ctx context.Context, userID string, password string) error
 	// DeleteUserWithID deletes an user with userID
 	DeleteUserWithID(ctx context.Context, userID string) error
@@ -45,13 +45,13 @@ type UsersAPI interface {
 	MeUpdatePassword(ctx context.Context, oldPassword, newPassword string) error
 	// SignIn exchanges username and password credentials to establish an authenticated session with the InfluxDB server. The Client's authentication token is then ignored, it can be empty.
 	SignIn(ctx context.Context, username, password string) error
-	// SignOut signs out previously signed-in user
+	// SignOut signs out previously signed in user
 	SignOut(ctx context.Context) error
 }
 
 // usersAPI implements UsersAPI
 type usersAPI struct {
-	apiClient       *domain.Client
+	apiClient       *domain.ClientWithResponses
 	httpService     http.Service
 	httpClient      *nethttp.Client
 	deleteCookieJar bool
@@ -59,7 +59,7 @@ type usersAPI struct {
 }
 
 // NewUsersAPI creates new instance of UsersAPI
-func NewUsersAPI(apiClient *domain.Client, httpService http.Service, httpClient *nethttp.Client) UsersAPI {
+func NewUsersAPI(apiClient *domain.ClientWithResponses, httpService http.Service, httpClient *nethttp.Client) UsersAPI {
 	return &usersAPI{
 		apiClient:   apiClient,
 		httpService: httpService,
@@ -69,22 +69,26 @@ func NewUsersAPI(apiClient *domain.Client, httpService http.Service, httpClient 
 
 func (u *usersAPI) GetUsers(ctx context.Context) (*[]domain.User, error) {
 	params := &domain.GetUsersParams{}
-	response, err := u.apiClient.GetUsers(ctx, params)
+	response, err := u.apiClient.GetUsersWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return userResponsesToUsers(response.Users), nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return userResponsesToUsers(response.JSON200.Users), nil
 }
 
 func (u *usersAPI) FindUserByID(ctx context.Context, userID string) (*domain.User, error) {
-	params := &domain.GetUsersIDAllParams{
-		UserID: userID,
-	}
-	response, err := u.apiClient.GetUsersID(ctx, params)
+	params := &domain.GetUsersIDParams{}
+	response, err := u.apiClient.GetUsersIDWithResponse(ctx, userID, params)
 	if err != nil {
 		return nil, err
 	}
-	return userResponseToUser(response), nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return userResponseToUser(response.JSON200), nil
 }
 
 func (u *usersAPI) FindUserByName(ctx context.Context, userName string) (*domain.User, error) {
@@ -111,26 +115,27 @@ func (u *usersAPI) CreateUserWithName(ctx context.Context, userName string) (*do
 }
 
 func (u *usersAPI) CreateUser(ctx context.Context, user *domain.User) (*domain.User, error) {
-	params := &domain.PostUsersAllParams{
-		Body: domain.PostUsersJSONRequestBody(*user),
-	}
-	response, err := u.apiClient.PostUsers(ctx, params)
+	params := &domain.PostUsersParams{}
+	response, err := u.apiClient.PostUsersWithResponse(ctx, params, domain.PostUsersJSONRequestBody(*user))
 	if err != nil {
 		return nil, err
 	}
-	return userResponseToUser(response), nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return userResponseToUser(response.JSON201), nil
 }
 
 func (u *usersAPI) UpdateUser(ctx context.Context, user *domain.User) (*domain.User, error) {
-	params := &domain.PatchUsersIDAllParams{
-		Body:   domain.PatchUsersIDJSONRequestBody(*user),
-		UserID: *user.Id,
-	}
-	response, err := u.apiClient.PatchUsersID(ctx, params)
+	params := &domain.PatchUsersIDParams{}
+	response, err := u.apiClient.PatchUsersIDWithResponse(ctx, *user.Id, params, domain.PatchUsersIDJSONRequestBody(*user))
 	if err != nil {
 		return nil, err
 	}
-	return userResponseToUser(response), nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return userResponseToUser(response.JSON200), nil
 }
 
 func (u *usersAPI) UpdateUserPassword(ctx context.Context, user *domain.User, password string) error {
@@ -138,11 +143,16 @@ func (u *usersAPI) UpdateUserPassword(ctx context.Context, user *domain.User, pa
 }
 
 func (u *usersAPI) UpdateUserPasswordWithID(ctx context.Context, userID string, password string) error {
-	params := &domain.PostUsersIDPasswordAllParams{
-		UserID: userID,
-		Body:   domain.PostUsersIDPasswordJSONRequestBody(domain.PasswordResetBody{Password: password}),
+	params := &domain.PostUsersIDPasswordParams{}
+	body := &domain.PasswordResetBody{Password: password}
+	response, err := u.apiClient.PostUsersIDPasswordWithResponse(ctx, userID, params, domain.PostUsersIDPasswordJSONRequestBody(*body))
+	if err != nil {
+		return err
 	}
-	return u.apiClient.PostUsersIDPassword(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }
 
 func (u *usersAPI) DeleteUser(ctx context.Context, user *domain.User) error {
@@ -150,19 +160,27 @@ func (u *usersAPI) DeleteUser(ctx context.Context, user *domain.User) error {
 }
 
 func (u *usersAPI) DeleteUserWithID(ctx context.Context, userID string) error {
-	params := &domain.DeleteUsersIDAllParams{
-		UserID: userID,
+	params := &domain.DeleteUsersIDParams{}
+	response, err := u.apiClient.DeleteUsersIDWithResponse(ctx, userID, params)
+	if err != nil {
+		return err
 	}
-	return u.apiClient.DeleteUsersID(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }
 
 func (u *usersAPI) Me(ctx context.Context) (*domain.User, error) {
 	params := &domain.GetMeParams{}
-	response, err := u.apiClient.GetMe(ctx, params)
+	response, err := u.apiClient.GetMeWithResponse(ctx, params)
 	if err != nil {
 		return nil, err
 	}
-	return userResponseToUser(response), nil
+	if response.JSONDefault != nil {
+		return nil, domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return userResponseToUser(response.JSON200), nil
 }
 
 func (u *usersAPI) MeUpdatePassword(ctx context.Context, oldPassword, newPassword string) error {
@@ -176,10 +194,16 @@ func (u *usersAPI) MeUpdatePassword(ctx context.Context, oldPassword, newPasswor
 	auth := u.httpService.Authorization()
 	defer u.httpService.SetAuthorization(auth)
 	u.httpService.SetAuthorization("Basic " + creds)
-	params := &domain.PutMePasswordAllParams{
-		Body: domain.PutMePasswordJSONRequestBody(domain.PasswordResetBody{Password: newPassword}),
+	params := &domain.PutMePasswordParams{}
+	body := &domain.PasswordResetBody{Password: newPassword}
+	response, err := u.apiClient.PutMePasswordWithResponse(ctx, params, domain.PutMePasswordJSONRequestBody(*body))
+	if err != nil {
+		return err
 	}
-	return u.apiClient.PutMePassword(ctx, params)
+	if response.JSONDefault != nil {
+		return domain.ErrorToHTTPError(response.JSONDefault, response.StatusCode())
+	}
+	return nil
 }
 
 func (u *usersAPI) SignIn(ctx context.Context, username, password string) error {
@@ -196,17 +220,39 @@ func (u *usersAPI) SignIn(ctx context.Context, username, password string) error 
 	creds := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 	u.httpService.SetAuthorization("Basic " + creds)
 	defer u.httpService.SetAuthorization("")
-	return u.apiClient.PostSignin(ctx, &domain.PostSigninParams{})
+	resp, err := u.apiClient.PostSigninWithResponse(ctx, &domain.PostSigninParams{})
+	if err != nil {
+		return err
+	}
+	if resp.JSONDefault != nil {
+		return domain.ErrorToHTTPError(resp.JSONDefault, resp.StatusCode())
+	}
+	if resp.JSON401 != nil {
+		return domain.ErrorToHTTPError(resp.JSON401, resp.StatusCode())
+	}
+	if resp.JSON403 != nil {
+		return domain.ErrorToHTTPError(resp.JSON403, resp.StatusCode())
+	}
+	return nil
 }
 
 func (u *usersAPI) SignOut(ctx context.Context) error {
 	u.lock.Lock()
 	defer u.lock.Unlock()
-	err := u.apiClient.PostSignout(ctx, &domain.PostSignoutParams{})
+	resp, err := u.apiClient.PostSignoutWithResponse(ctx, &domain.PostSignoutParams{})
+	if err != nil {
+		return err
+	}
+	if resp.JSONDefault != nil {
+		return domain.ErrorToHTTPError(resp.JSONDefault, resp.StatusCode())
+	}
+	if resp.JSON401 != nil {
+		return domain.ErrorToHTTPError(resp.JSON401, resp.StatusCode())
+	}
 	if u.deleteCookieJar {
 		u.httpClient.Jar = nil
 	}
-	return err
+	return nil
 }
 
 func userResponseToUser(ur *domain.UserResponse) *domain.User {
@@ -214,9 +260,10 @@ func userResponseToUser(ur *domain.UserResponse) *domain.User {
 		return nil
 	}
 	user := &domain.User{
-		Id:     ur.Id,
-		Name:   ur.Name,
-		Status: userResponseStatusToUserStatus(ur.Status),
+		Id:      ur.Id,
+		Name:    ur.Name,
+		OauthID: ur.OauthID,
+		Status:  userResponseStatusToUserStatus(ur.Status),
 	}
 	return user
 }
