@@ -26,7 +26,7 @@ spec:
   - name: dockerfile
     value: /konflux/Dockerfile.konflux
   - name: prefetch-input
-    value: '{"packages": [{"type": "gomod","path": "."},{"type": "gomod","path": "konflux/controller-tools"},{"type": "gomod","path": "konflux/mock"},{"type": "gomod","path": "konflux/protobuf"}], "flags": ["gomod-vendor-check"]}'
+    value: '{"packages": [{"type": "gomod","path": "."},{"type": "gomod","path": "konflux/controller-tools"},{"type": "gomod","path": "konflux/mock"}], "flags": ["gomod-vendor-check"]}'
   pipelineSpec:
     finally:
     - name: show-sbom

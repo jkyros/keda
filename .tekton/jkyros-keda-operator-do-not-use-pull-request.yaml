@@ -31,7 +31,7 @@ spec:
   - name: prefetch-input
     #TODO(jkyros): If you don't add a gomod vendor flag here, it won't work. Also whatever is here seems
     # to override the default not merge with it, just FYI
-    value: '{"packages": [{"type": "gomod","path": "."},{"type": "gomod","path": "konflux/controller-tools"},{"type": "gomod","path": "konflux/mock"},{"type": "gomod","path": "konflux/protobuf"}], "flags": ["gomod-vendor-check"]}'
+    value: '{"packages": [{"type": "gomod","path": "."},{"type": "gomod","path": "konflux/controller-tools"},{"type": "gomod","path": "konflux/mock"}], "flags": ["gomod-vendor-check"]}'
   pipelineSpec:
     finally:
     - name: show-sbom
