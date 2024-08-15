@@ -36,6 +36,8 @@ RUN cd /konflux/controller-tools/ && GOFLAGS="" go build -o /src/bin/controller-
 RUN cd /konflux/mock/ && GOFLAGS="" go build -o /src/bin/mockgen ./mockgen
 RUN cd /konflux/protobuf/ && cd src/google && for f in $(find protobuf/ -name '*.proto'); do mkdir -p /usr/include/google/"$(dirname "$f")"; cp "$f" /usr/include/google/"$f"; done
 
+# this breaks controller-gen if it's there because it thinks it's "inconsistent vendoring" because it's just a random go.mod file hanging out
+RUN rm -rf /src/hack/tooldeps
 RUN LOCALBIN=/src/bin make manager
 
 FROM registry.redhat.io/ubi9/ubi-minimal:latest
