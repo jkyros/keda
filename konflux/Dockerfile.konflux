@@ -15,7 +15,7 @@ COPY . /src/
 
 WORKDIR /src/
 # TODO(jkyros): somehow protobuf compiler is only in the codeready builder repo? 
-RUN dnf config-manager --enable=codeready-builder-for-rhel-9-x86_64-rpms && install -y protobuf-compiler 
+RUN dnf config-manager --enable codeready-builder-for-rhel-9-x86_64-rpms && dnf install -y protobuf-compiler 
 RUN cd konflux/controller-tools/ && GOFLAGS="" go build -o /src/bin/controller-gen ./cmd/controller-gen
 RUN cd konflux/mock/ && GOFLAGS="" go build -o /src/bin/mockgen ./mockgen
 RUN cd konflux/protobuf/ && cd src/google && for f in $(find protobuf/ -name '*.proto'); do mkdir -p /usr/include/google/"$(dirname "$f")"; cp "$f" /usr/include/google/"$f"; done
