@@ -1,0 +1,9 @@
+[submodule "konflux/controller-tools"]
+	path = konflux/controller-tools
+	url = https://github.com/kubernetes-sigs/controller-tools.git
+[submodule "konflux/protobuf"]
+	path = konflux/protobuf
+	url = https://github.com/protocolbuffers/protobuf.git
+[submodule "konflux/mock"]
+	path = konflux/mock
+	url = https://github.com/uber-go/mock
