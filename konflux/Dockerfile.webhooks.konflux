@@ -1,7 +1,10 @@
-FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.21 as builder
+#TODO(jkyros): There is something wrong with repo cert trust between the published RPM repos and the builder
+# It's a builder though, so I dunno if I really care 
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_1.22 as builder
+
+#FROM registry.redhat.io/ubi9/go-toolset as builder
 
 LABEL stage=build
-
 # Silence go compliance shim output
 ENV GO_COMPLIANCE_INFO=0
 ENV GO_COMPLIANCE_DEBUG=0
@@ -10,20 +13,48 @@ ENV GO_COMPLIANCE_DEBUG=0
 # downloading the latest version
 ENV GOTOOLCHAIN=local
 
+# TODO(jkyros): entirlements are always a clown show for some reason, if you don't do this, you get
+# cert errors because it's looking at rhsm-host and not rhsm and won't find the cert
+RUN rm -rf /etc/rhsm-host && ln -s /etc/rhsm /etc/rhsm-host
+# protobuf-compiler lives in the codeready channels
+# TODO(jkyros): pin this to cache when we are able 
+RUN dnf install --enablerepo=codeready-builder-for-rhel-9-x86_64-rpms  -y protobuf-compiler 
+
+
 # Get the sources in here
 COPY . /src/
 
 WORKDIR /src/
 
-RUN make webhooks
+# some of our submodules have trash vendoring, so move our konflux directory 
+# out of the way so our generators can't see the submodules directly 
+# (we never used to have submodules, so this wasn't a problem) 
+RUN mv /src/konflux /konflux
+
+
+RUN cd /konflux/controller-tools/ && GOFLAGS="" go build -o /src/bin/controller-gen ./cmd/controller-gen
+RUN cd /konflux/mock/ && GOFLAGS="" go build -o /src/bin/mockgen ./mockgen
+RUN cd /konflux/protobuf/ && cd src/google && for f in $(find protobuf/ -name '*.proto'); do mkdir -p /usr/include/google/"$(dirname "$f")"; cp "$f" /usr/include/google/"$f"; done
+
+# this breaks controller-gen if it's there because it thinks it's "inconsistent vendoring" because it's just a random go.mod file hanging out
+RUN rm -rf /src/hack/tooldeps
+RUN LOCALBIN=/src/bin make webhooks
 
 FROM registry.redhat.io/ubi9/ubi-minimal:latest
 
 WORKDIR /
-RUN microdnf reinstall -y tzdata 
+# TODO(jkyros): It will try to pull from the RHEL channels because of the entitlement secret, so we have to disable
+# all the repos (the RHEL ones) and then enable the ubi repos. 
+RUN microdnf --disablerepo=* --enablerepo=ubi-9-baseos-rpms --enablerepo=ubi-9-appstream-rpms reinstall -y tzdata 
 COPY --from=builder /src/bin/keda /usr/bin/
 RUN ln -s /usr/bin/keda /keda
+
+# Compliance
+RUN /licences && cp LICENCE /licenses/
+
 USER nobody
+
+
 
 ENTRYPOINT ["/usr/bin/keda", "--zap-log-level=info", "--zap-encoder=console"]
 

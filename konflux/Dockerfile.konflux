@@ -48,7 +48,13 @@ WORKDIR /
 RUN microdnf --disablerepo=* --enablerepo=ubi-9-baseos-rpms --enablerepo=ubi-9-appstream-rpms reinstall -y tzdata 
 COPY --from=builder /src/bin/keda /usr/bin/
 RUN ln -s /usr/bin/keda /keda
+
+# Compliance
+RUN /licences && cp LICENCE /licenses/
+
 USER nobody
+
+
 
 ENTRYPOINT ["/usr/bin/keda", "--zap-log-level=info", "--zap-encoder=console"]
 
