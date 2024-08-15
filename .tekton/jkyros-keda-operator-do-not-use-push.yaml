@@ -25,6 +25,8 @@ spec:
     value: quay.io/redhat-user-workloads/cma-podauto-tenant/custom-metrics-autoscaler-operator/jkyros-keda-operator-do-not-use:{{revision}}
   - name: dockerfile
     value: /konflux/Dockerfile.konflux
+  - name: prefetch-input
+    value: '{"type": "gomod", "path": "."}'
   pipelineSpec:
     finally:
     - name: show-sbom
