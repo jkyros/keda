@@ -26,7 +26,7 @@ spec:
   - name: dockerfile
     value: /konflux/Dockerfile.konflux
   - name: prefetch-input
-    value: '{"type": "gomod", "path": "."}'
+    value: '{"packages": [{"type": "gomod","path": "."}], "flags": ["gomod-vendor-check"]}'
   pipelineSpec:
     finally:
     - name: show-sbom
@@ -97,7 +97,7 @@ spec:
       description: Execute the build with network isolation
       name: hermetic
       type: string
-    - default: '{"packages": [{"type": "gomod"}], "flags": ["gomod-vendor-check"]}'
+    - default: ""
       description: Build dependencies to be prefetched by Cachi2
       name: prefetch-input
       type: string
