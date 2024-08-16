@@ -24,7 +24,7 @@ spec:
   - name: output-image
     value: quay.io/redhat-user-workloads/cma-podauto-tenant/custom-metrics-autoscaler-operator/jkyros-keda-adapter-do-not-use:{{revision}}
   - name: dockerfile
-    value: /konflux/Dockerfile.konflux.adapter
+    value: /konflux/Dockerfile.adapter.konflux
   pipelineSpec:
     finally:
     - name: show-sbom
