@@ -50,7 +50,8 @@ COPY --from=builder /src/bin/keda-admission-webhooks /usr/bin/
 RUN ln -s /usr/bin/keda-admission-webhooks /keda-admission-webhooks
 
 # Compliance
-RUN /licences && cp LICENCE /licenses/
+RUN mkdir /licenses
+COPY --from=builder /src/LICENSE /licenses/
 
 USER nobody
 

@@ -50,7 +50,8 @@ COPY --from=builder /src/bin/keda /usr/bin/
 RUN ln -s /usr/bin/keda /keda
 
 # Compliance
-RUN /licences && cp LICENCE /licenses/
+RUN mkdir /licenses
+COPY --from=builder /src/LICENSE /licenses/
 
 USER nobody
 
