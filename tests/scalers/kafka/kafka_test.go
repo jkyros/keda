@@ -613,10 +613,12 @@ func testOneOnInvalidOffsetWithLatestOffsetResetPolicy(t *testing.T, kc *kuberne
 
 func testOneOnInvalidOffsetWithEarliestOffsetResetPolicy(t *testing.T, kc *kubernetes.Clientset, data templateData) {
 	t.Log("--- testing oneInvalidOffsetTopicWithEarliestOffsetResetPolicy: scale out ---")
-	data.Params = fmt.Sprintf("--topic %s --group %s --from-beginning", oneInvalidOffsetTopic, invalidOffsetGroup)
+	// Use a unique consumer group to avoid test pollution from previous test (this test likes to flake on openshift due to timing)
+	earliestInvalidOffsetGroup := "invalidOffsetEarliest"
+	data.Params = fmt.Sprintf("--topic %s --group %s --from-beginning", oneInvalidOffsetTopic, earliestInvalidOffsetGroup)
 	data.Commit = StringTrue
 	data.TopicName = oneInvalidOffsetTopic
-	data.ResetPolicy = invalidOffsetGroup
+	data.ResetPolicy = earliestInvalidOffsetGroup
 	data.ScaleToZeroOnInvalid = StringFalse
 	KubectlApplyWithTemplate(t, data, "singleDeploymentTemplate", singleDeploymentTemplate)
 	defer KubectlDeleteWithTemplate(t, data, "singleDeploymentTemplate", singleDeploymentTemplate)
@@ -628,7 +630,7 @@ func testOneOnInvalidOffsetWithEarliestOffsetResetPolicy(t *testing.T, kc *kuber
 	assert.True(t, WaitForDeploymentReplicaReadyCount(t, kc, deploymentName, testNamespace, 1, 60, 2),
 		"replica count should be %d after 2 minute", 1)
 
-	commitPartition(t, oneInvalidOffsetTopic, invalidOffsetGroup)
+	commitPartition(t, oneInvalidOffsetTopic, earliestInvalidOffsetGroup)
 	publishMessage(t, oneInvalidOffsetTopic)
 
 	// Should scale to 0
