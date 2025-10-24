@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-consumer
+  namespace: kafka-kerberos-demo
+  labels:
+    app: kafka-consumer
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: kafka-consumer
+  template:
+    metadata:
+      labels:
+        app: kafka-consumer
+    spec:
+      containers:
+      - name: consumer
+        image: confluentinc/cp-kafka:7.5.0
+        command:
+          - sh
+          - -c
+          - |
+            # Wait for Kafka to be ready
+            until kafka-topics --bootstrap-server kafka.kafka-kerberos-demo.svc.cluster.local:9092 --list 2>/dev/null; do
+              echo "Waiting for Kafka..."
+              sleep 5
+            done
+
+            echo "Starting Kafka consumer..."
+            kafka-console-consumer \
+              --bootstrap-server kafka.kafka-kerberos-demo.svc.cluster.local:9092 \
+              --topic keda-test-topic \
+              --group keda-consumer-group \
+              --consumer-property enable.auto.commit=true \
+              --from-beginning
+        env:
+        - name: KAFKA_OPTS
+          value: "-Djava.security.krb5.conf=/etc/krb5.conf"
+        volumeMounts:
+        - name: krb5-config
+          mountPath: /etc/krb5.conf
+          subPath: krb5.conf
+      volumes:
+      - name: krb5-config
+        secret:
+          secretName: kafka-kerberos-credentials
+          items:
+          - key: kerberosConfig
+            path: krb5.conf

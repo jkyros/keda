@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka-kerberos-demo
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kdc-config
+  namespace: kafka-kerberos-demo
+data:
+  krb5.conf: |
+    [libdefaults]
+        default_realm = KEDA.LOCAL
+        dns_lookup_realm = false
+        dns_lookup_kdc = false
+        ticket_lifetime = 24h
+        renew_lifetime = 7d
+        forwardable = true
+
+    [realms]
+        KEDA.LOCAL = {
+            kdc = kdc.kafka-kerberos-demo.svc.cluster.local:88
+            admin_server = kdc.kafka-kerberos-demo.svc.cluster.local:749
+        }
+
+    [domain_realm]
+        .kafka-kerberos-demo.svc.cluster.local = KEDA.LOCAL
+        kafka-kerberos-demo.svc.cluster.local = KEDA.LOCAL
+
+  kdc.conf: |
+    [kdcdefaults]
+        kdc_ports = 88
+        kdc_tcp_ports = 88
+
+    [realms]
+        KEDA.LOCAL = {
+            kadmind_port = 749
+            max_life = 12h 0m 0s
+            max_renewable_life = 7d 0h 0m 0s
+            master_key_type = aes256-cts
+            supported_enctypes = aes256-cts:normal aes128-cts:normal
+            default_principal_flags = +preauth
+        }
+
+  init-kdc.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "========================================="
+    echo "Initializing Kerberos KDC for KEDA.LOCAL"
+    echo "========================================="
+
+    # Create KDC database
+    echo "Creating KDC database..."
+    kdb5_util create -s -P kdc_master_password -r KEDA.LOCAL
+
+    # Start KDC
+    echo "Starting KDC service..."
+    krb5kdc -P /var/run/krb5kdc.pid
+
+    # Start kadmind
+    echo "Starting kadmin service..."
+    kadmind -P /var/run/kadmind.pid
+
+    # Wait for services to be ready
+    sleep 3
+
+    echo "Creating principals..."
+
+    # Create Kafka broker principal
+    echo "  - Creating Kafka broker principal..."
+    kadmin.local -q "addprinc -randkey kafka/kafka.kafka-kerberos-demo.svc.cluster.local@KEDA.LOCAL"
+
+    # Create test user principal (password auth)
+    echo "  - Creating test user principal (password)..."
+    kadmin.local -q "addprinc -pw testpassword testuser@KEDA.LOCAL"
+
+    # Create keytab user principal (keytab auth)
+    echo "  - Creating keytab user principal..."
+    kadmin.local -q "addprinc -randkey keytabuser@KEDA.LOCAL"
+
+    # Create keytabs directory
+    echo "Generating keytabs..."
+    mkdir -p /keytabs
+    chmod 755 /keytabs
+
+    # Generate keytabs
+    kadmin.local -q "ktadd -k /keytabs/kafka.keytab kafka/kafka.kafka-kerberos-demo.svc.cluster.local@KEDA.LOCAL"
+    kadmin.local -q "ktadd -k /keytabs/keytabuser.keytab keytabuser@KEDA.LOCAL"
+
+    # Set permissions
+    chmod 644 /keytabs/*.keytab
+
+    echo "========================================="
+    echo "KDC Initialization Complete!"
+    echo "========================================="
+    echo "Realm: KEDA.LOCAL"
+    echo "KDC: kdc.kafka-kerberos-demo.svc.cluster.local:88"
+    echo ""
+    echo "Principals created:"
+    echo "  - kafka/kafka.kafka-kerberos-demo.svc.cluster.local@KEDA.LOCAL (keytab: /keytabs/kafka.keytab)"
+    echo "  - testuser@KEDA.LOCAL (password: testpassword)"
+    echo "  - keytabuser@KEDA.LOCAL (keytab: /keytabs/keytabuser.keytab)"
+    echo "========================================="
+
+    # Keep container running and tail logs
+    tail -f /var/log/krb5kdc.log /var/log/kadmind.log 2>/dev/null || tail -f /dev/null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kdc
+  namespace: kafka-kerberos-demo
+  labels:
+    app: kdc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kdc
+  template:
+    metadata:
+      labels:
+        app: kdc
+    spec:
+      containers:
+      - name: kdc
+        image: ubuntu:22.04
+        command:
+          - /bin/bash
+          - -c
+          - |
+            echo "Installing Kerberos packages..."
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+              krb5-kdc \
+              krb5-admin-server \
+              krb5-config \
+              netcat \
+              > /dev/null 2>&1
+
+            echo "Copying configuration files..."
+            cp /config/krb5.conf /etc/krb5.conf
+            cp /config/kdc.conf /etc/krb5kdc/kdc.conf
+
+            echo "Running initialization script..."
+            chmod +x /config/init-kdc.sh
+            /config/init-kdc.sh
+        ports:
+        - containerPort: 88
+          name: kdc
+          protocol: TCP
+        - containerPort: 749
+          name: kadmin
+          protocol: TCP
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: keytabs
+          mountPath: /keytabs
+        readinessProbe:
+          tcpSocket:
+            port: 88
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 88
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: config
+        configMap:
+          name: kdc-config
+          defaultMode: 0755
+      - name: keytabs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kdc
+  namespace: kafka-kerberos-demo
+  labels:
+    app: kdc
+spec:
+  type: ClusterIP
+  ports:
+  - port: 88
+    targetPort: 88
+    protocol: TCP
+    name: kdc
+  - port: 749
+    targetPort: 749
+    protocol: TCP
+    name: kadmin
+  selector:
+    app: kdc

@@ -1,0 +1,25 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: kafka-kerberos-auth
+  namespace: kafka-kerberos-demo
+spec:
+  secretTargetRef:
+    - parameter: sasl
+      name: kafka-kerberos-credentials
+      key: sasl
+    - parameter: username
+      name: kafka-kerberos-credentials
+      key: username
+    - parameter: password
+      name: kafka-kerberos-credentials
+      key: password
+    - parameter: realm
+      name: kafka-kerberos-credentials
+      key: realm
+    - parameter: kerberosConfig
+      name: kafka-kerberos-credentials
+      key: kerberosConfig
+    - parameter: kerberosServiceName
+      name: kafka-kerberos-credentials
+      key: kerberosServiceName

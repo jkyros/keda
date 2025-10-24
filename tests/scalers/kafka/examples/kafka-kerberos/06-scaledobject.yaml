@@ -1,0 +1,22 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: kafka-scaledobject
+  namespace: kafka-kerberos-demo
+spec:
+  scaleTargetRef:
+    name: kafka-consumer
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 0
+  maxReplicaCount: 10
+  triggers:
+  - type: kafka
+    metadata:
+      bootstrapServers: kafka.kafka-kerberos-demo.svc.cluster.local:9092
+      consumerGroup: keda-consumer-group
+      topic: keda-test-topic
+      lagThreshold: '5'
+      offsetResetPolicy: 'latest'
+    authenticationRef:
+      name: kafka-kerberos-auth

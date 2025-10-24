@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-producer
+  namespace: kafka-kerberos-demo
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: producer
+        image: confluentinc/cp-kafka:7.5.0
+        command:
+          - sh
+          - -c
+          - |
+            echo "Kafka Test Message Producer"
+            echo "============================"
+
+            # Wait for Kafka to be ready
+            echo "Waiting for Kafka to be ready..."
+            until kafka-topics --bootstrap-server kafka.kafka-kerberos-demo.svc.cluster.local:9092 \
+              --list 2>/dev/null; do
+              echo "Kafka not ready, retrying..."
+              sleep 5
+            done
+
+            echo "Kafka is ready!"
+
+            # Create topic if it doesn't exist
+            echo "Creating/verifying topic: keda-test-topic"
+            kafka-topics --bootstrap-server kafka.kafka-kerberos-demo.svc.cluster.local:9092 \
+              --create \
+              --topic keda-test-topic \
+              --partitions 3 \
+              --replication-factor 1 \
+              --if-not-exists
+
+            # Produce test messages
+            echo "Producing 100 test messages..."
+            for i in $(seq 1 100); do
+              echo "Test message $i - $(date)" | \
+                kafka-console-producer \
+                  --bootstrap-server kafka.kafka-kerberos-demo.svc.cluster.local:9092 \
+                  --topic keda-test-topic
+
+              # Add small delay to simulate realistic load
+              sleep 0.1
+            done
+
+            echo "Successfully produced 100 messages!"
+            echo "Consumer should now scale up to handle the lag"

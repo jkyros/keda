@@ -1,0 +1,204 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-config
+  namespace: kafka-kerberos-demo
+data:
+  kafka_server_jaas.conf: |
+    KafkaServer {
+        com.sun.security.auth.module.Krb5LoginModule required
+        useKeyTab=true
+        storeKey=true
+        keyTab="/opt/kafka/keytabs/kafka.keytab"
+        principal="kafka/kafka.kafka-kerberos-demo.svc.cluster.local@KEDA.LOCAL";
+    };
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka-kerberos-demo
+  labels:
+    app: kafka
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      initContainers:
+      # Wait for KDC to be ready
+      - name: wait-for-kdc
+        image: busybox:1.36
+        command:
+          - sh
+          - -c
+          - |
+            echo "Waiting for KDC to be ready..."
+            until nc -z kdc.kafka-kerberos-demo.svc.cluster.local 88; do
+              echo "KDC not ready, retrying in 2 seconds..."
+              sleep 2
+            done
+            echo "KDC is ready!"
+            # Wait a bit more for KDC to fully initialize and create keytabs
+            sleep 15
+
+      # Copy keytab from KDC
+      # In production, you would use a Secret or external secret management
+      - name: setup-keytab
+        image: ubuntu:22.04
+        command:
+          - sh
+          - -c
+          - |
+            echo "Installing Kerberos tools..."
+            apt-get update -qq > /dev/null 2>&1
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+              krb5-user \
+              netcat-traditional \
+              curl \
+              > /dev/null 2>&1
+
+            echo "Setting up Kerberos config..."
+            cp /kdc-config/krb5.conf /etc/krb5.conf
+
+            echo "Keytab setup (simulated for demo)..."
+            # In this demo, keytabs are generated in the KDC
+            # In production, you would:
+            # 1. Generate keytabs securely
+            # 2. Store in Kubernetes Secrets or external secret manager
+            # 3. Mount as volumes
+            mkdir -p /opt/kafka/keytabs
+            echo "Keytab directory created at /opt/kafka/keytabs"
+            echo "Note: In production, mount actual keytabs here"
+
+        volumeMounts:
+        - name: kdc-config
+          mountPath: /kdc-config
+        - name: kafka-keytabs
+          mountPath: /opt/kafka/keytabs
+
+      containers:
+      # Zookeeper container (required by Kafka)
+      - name: zookeeper
+        image: confluentinc/cp-zookeeper:7.5.0
+        ports:
+        - containerPort: 2181
+          name: zk-client
+        env:
+        - name: ZOOKEEPER_CLIENT_PORT
+          value: "2181"
+        - name: ZOOKEEPER_TICK_TIME
+          value: "2000"
+        - name: ZOOKEEPER_SYNC_LIMIT
+          value: "2"
+
+      # Kafka broker container
+      - name: kafka
+        image: confluentinc/cp-kafka:7.5.0
+        ports:
+        - containerPort: 9092
+          name: kafka
+        env:
+        # Java/Kerberos options
+        - name: KAFKA_OPTS
+          value: "-Djava.security.krb5.conf=/kdc-config/krb5.conf -Djava.security.auth.login.config=/kafka-config/kafka_server_jaas.conf"
+
+        # Kafka broker configuration
+        - name: KAFKA_BROKER_ID
+          value: "1"
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: "localhost:2181"
+
+        # Listeners - SASL_PLAINTEXT for Kerberos
+        - name: KAFKA_LISTENERS
+          value: "SASL_PLAINTEXT://:9092"
+        - name: KAFKA_ADVERTISED_LISTENERS
+          value: "SASL_PLAINTEXT://kafka.kafka-kerberos-demo.svc.cluster.local:9092"
+        - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+          value: "SASL_PLAINTEXT:SASL_PLAINTEXT"
+        - name: KAFKA_INTER_BROKER_LISTENER_NAME
+          value: "SASL_PLAINTEXT"
+
+        # SASL/Kerberos configuration
+        - name: KAFKA_SASL_ENABLED_MECHANISMS
+          value: "GSSAPI"
+        - name: KAFKA_SASL_KERBEROS_SERVICE_NAME
+          value: "kafka"
+        - name: KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL
+          value: "GSSAPI"
+
+        # Topic auto-creation
+        - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+          value: "true"
+
+        # Replication factors (single broker setup)
+        - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+          value: "1"
+        - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+          value: "1"
+
+        # Logging
+        - name: KAFKA_LOG4J_LOGGERS
+          value: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+        - name: KAFKA_LOG4J_ROOT_LOGLEVEL
+          value: "INFO"
+
+        volumeMounts:
+        - name: kafka-config
+          mountPath: /kafka-config
+        - name: kdc-config
+          mountPath: /kdc-config
+        - name: kafka-keytabs
+          mountPath: /opt/kafka/keytabs
+        - name: kafka-data
+          mountPath: /var/lib/kafka/data
+
+        readinessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
+        livenessProbe:
+          tcpSocket:
+            port: 9092
+          initialDelaySeconds: 60
+          periodSeconds: 20
+
+      volumes:
+      - name: kafka-config
+        configMap:
+          name: kafka-config
+      - name: kdc-config
+        configMap:
+          name: kdc-config
+      - name: kafka-keytabs
+        emptyDir: {}
+      - name: kafka-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: kafka-kerberos-demo
+  labels:
+    app: kafka
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet
+  ports:
+  - port: 9092
+    targetPort: 9092
+    protocol: TCP
+    name: kafka
+  selector:
+    app: kafka
