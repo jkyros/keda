@@ -260,6 +260,12 @@ const CloudConfigureIntegrationMutation = `mutation(
 			metricsPollingInterval
 			resourceGroups
 		}
+		... on CloudAzureAutoDiscoveryIntegration {
+			__typename
+			enabled
+			inventoryPollingInterval
+			metricsPollingInterval
+		}
 		... on CloudAzureContainersIntegration {
 			__typename
 			inventoryPollingInterval
@@ -781,6 +787,12 @@ const CloudConfigureIntegrationMutation = `mutation(
 			metricsPollingInterval
 			tagKey
 			tagValue
+		}
+		... on CloudSecurityHubIntegration {
+			__typename
+			awsRegions
+			inventoryPollingInterval
+			metricsPollingInterval
 		}
 		... on CloudSesIntegration {
 			__typename
@@ -1071,6 +1083,12 @@ const CloudDisableIntegrationMutation = `mutation(
 			metricsPollingInterval
 			resourceGroups
 		}
+		... on CloudAzureAutoDiscoveryIntegration {
+			__typename
+			enabled
+			inventoryPollingInterval
+			metricsPollingInterval
+		}
 		... on CloudAzureContainersIntegration {
 			__typename
 			inventoryPollingInterval
@@ -1592,6 +1610,12 @@ const CloudDisableIntegrationMutation = `mutation(
 			metricsPollingInterval
 			tagKey
 			tagValue
+		}
+		... on CloudSecurityHubIntegration {
+			__typename
+			awsRegions
+			inventoryPollingInterval
+			metricsPollingInterval
 		}
 		... on CloudSesIntegration {
 			__typename
@@ -2164,6 +2188,12 @@ const getLinkedAccountQuery = `query(
 			metricsPollingInterval
 			resourceGroups
 		}
+		... on CloudAzureAutoDiscoveryIntegration {
+			__typename
+			enabled
+			inventoryPollingInterval
+			metricsPollingInterval
+		}
 		... on CloudAzureContainersIntegration {
 			__typename
 			inventoryPollingInterval
@@ -2685,6 +2715,12 @@ const getLinkedAccountQuery = `query(
 			metricsPollingInterval
 			tagKey
 			tagValue
+		}
+		... on CloudSecurityHubIntegration {
+			__typename
+			awsRegions
+			inventoryPollingInterval
+			metricsPollingInterval
 		}
 		... on CloudSesIntegration {
 			__typename
@@ -3033,6 +3069,12 @@ const getLinkedAccountsQuery = `query(
 			metricsPollingInterval
 			resourceGroups
 		}
+		... on CloudAzureAutoDiscoveryIntegration {
+			__typename
+			enabled
+			inventoryPollingInterval
+			metricsPollingInterval
+		}
 		... on CloudAzureContainersIntegration {
 			__typename
 			inventoryPollingInterval
@@ -3554,6 +3596,12 @@ const getLinkedAccountsQuery = `query(
 			metricsPollingInterval
 			tagKey
 			tagValue
+		}
+		... on CloudSecurityHubIntegration {
+			__typename
+			awsRegions
+			inventoryPollingInterval
+			metricsPollingInterval
 		}
 		... on CloudSesIntegration {
 			__typename

@@ -363,6 +363,15 @@ func (w *WorkflowOutboundInterceptorBase) SideEffect(
 	return w.Next.SideEffect(ctx, f)
 }
 
+// SideEffectWithOptions implements WorkflowOutboundInterceptor.SideEffectWithOptions.
+func (w *WorkflowOutboundInterceptorBase) SideEffectWithOptions(
+	ctx Context,
+	options SideEffectOptions,
+	f func(ctx Context) interface{},
+) converter.EncodedValue {
+	return w.Next.SideEffectWithOptions(ctx, options, f)
+}
+
 // MutableSideEffect implements WorkflowOutboundInterceptor.MutableSideEffect.
 func (w *WorkflowOutboundInterceptorBase) MutableSideEffect(
 	ctx Context,
@@ -371,6 +380,17 @@ func (w *WorkflowOutboundInterceptorBase) MutableSideEffect(
 	equals func(a, b interface{}) bool,
 ) converter.EncodedValue {
 	return w.Next.MutableSideEffect(ctx, id, f, equals)
+}
+
+// MutableSideEffectWithOptions implements WorkflowOutboundInterceptor.MutableSideEffectWithOptions.
+func (w *WorkflowOutboundInterceptorBase) MutableSideEffectWithOptions(
+	ctx Context,
+	id string,
+	options MutableSideEffectOptions,
+	f func(ctx Context) interface{},
+	equals func(a, b interface{}) bool,
+) converter.EncodedValue {
+	return w.Next.MutableSideEffectWithOptions(ctx, id, options, f, equals)
 }
 
 // GetVersion implements WorkflowOutboundInterceptor.GetVersion.
@@ -594,6 +614,11 @@ var _ NexusOperationInboundInterceptor = &NexusOperationInboundInterceptorBase{}
 // Note: Experimental
 type NexusOperationOutboundInterceptorBase struct {
 	Next NexusOperationOutboundInterceptor
+}
+
+// GetOperationInfo implements NexusOperationOutboundInterceptor.
+func (n *NexusOperationOutboundInterceptorBase) GetOperationInfo(ctx context.Context) NexusOperationInfo {
+	return n.Next.GetOperationInfo(ctx)
 }
 
 // GetClient implements NexusOperationOutboundInterceptor.

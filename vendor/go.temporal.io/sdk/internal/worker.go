@@ -30,16 +30,12 @@ type (
 
 	// PollerBehavior is used to configure the behavior of the poller.
 	//
-	// NOTE: Experimental
-	//
 	// Exposed as: [go.temporal.io/sdk/worker.PollerBehavior]
 	PollerBehavior interface {
 		isPollerBehavior()
 	}
 
 	// PollerBehaviorAutoscalingOptions is the options for NewPollerBehaviorAutoscaling.
-	//
-	// NOTE: Experimental
 	//
 	// Exposed as: [go.temporal.io/sdk/worker.PollerBehaviorAutoscalingOptions]
 	PollerBehaviorAutoscalingOptions struct {
@@ -60,8 +56,6 @@ type (
 	}
 
 	// PollerBehaviorSimpleMaximumOptions is the options for NewPollerBehaviorSimpleMaximum.
-	//
-	// NOTE: Experimental
 	//
 	// Exposed as: [go.temporal.io/sdk/worker.PollerBehaviorSimpleMaximumOptions]
 	PollerBehaviorSimpleMaximumOptions struct {
@@ -396,6 +390,18 @@ type (
 		//
 		// NOTE: Experimental
 		NexusTaskPollerBehavior PollerBehavior
+
+		// Plugins that can configure options and intercept start/stop worker.
+		//
+		// Any plugins that were part of client options and implement
+		// worker.Plugin are automatically applied as worker plugins and should
+		// not also be set here.
+		//
+		// Plugins themselves should never mutate this field, the behavior is
+		// undefined.
+		//
+		// NOTE: Experimental
+		Plugins []WorkerPlugin
 	}
 )
 
@@ -462,7 +468,7 @@ func workerDeploymentOptionsToProto(useVersioning bool, version WorkerDeployment
 		}
 		return &deploymentpb.WorkerDeploymentOptions{
 			DeploymentName:       version.DeploymentName,
-			BuildId:              version.BuildId,
+			BuildId:              version.BuildID,
 			WorkerVersioningMode: workerVersioningMode,
 		}
 	}
@@ -479,8 +485,6 @@ func (p *pollerBehaviorAutoscaling) isPollerBehavior() {
 
 // NewPollerBehaviorSimpleMaximum creates a PollerBehavior that allows the worker to start up to a maximum number of pollers.
 //
-// NOTE: Experimental
-//
 // Exposed as: [go.temporal.io/sdk/worker.NewPollerBehaviorSimpleMaximum]
 func NewPollerBehaviorSimpleMaximum(
 	options PollerBehaviorSimpleMaximumOptions,
@@ -495,8 +499,6 @@ func NewPollerBehaviorSimpleMaximum(
 
 // NewPollerBehaviorAutoscaling creates a PollerBehavior that allows the worker to scale the number of pollers within a given range.
 // based on the workflow and feedback from the server.
-//
-// NOTE: Experimental
 //
 // Exposed as: [go.temporal.io/sdk/worker.NewPollerBehaviorAutoscaling]
 func NewPollerBehaviorAutoscaling(

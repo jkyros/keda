@@ -137,6 +137,8 @@ var testDatadogClusterAgentMetadata = []datadogAuthMetadataTestData{
 	// invalid timeout values for cluster agent
 	{"", map[string]string{"useClusterAgentProxy": "true", "datadogMetricName": "nginx-hits", "datadogMetricNamespace": "default", "targetValue": "2", "timeout": "invalid"}, map[string]string{"token": "token", "datadogNamespace": "datadog", "datadogMetricsService": "datadog-cluster-agent-metrics-api", "authMode": "bearer"}, true},
 	{"", map[string]string{"useClusterAgentProxy": "true", "datadogMetricName": "nginx-hits", "datadogMetricNamespace": "default", "targetValue": "2", "timeout": "-10s"}, map[string]string{"token": "token", "datadogNamespace": "datadog", "datadogMetricsService": "datadog-cluster-agent-metrics-api", "authMode": "bearer"}, true},
+	// metricUnavailableValue with cluster agent
+	{"", map[string]string{"useClusterAgentProxy": "true", "datadogMetricName": "nginx-hits", "datadogMetricNamespace": "default", "targetValue": "2", "metricUnavailableValue": "5.0"}, map[string]string{"token": "token", "datadogNamespace": "datadog", "datadogMetricsService": "datadog-cluster-agent-metrics-api", "authMode": "bearer"}, false},
 }
 
 var testDatadogAPIMetadata = []datadogAuthMetadataTestData{
@@ -193,6 +195,8 @@ var testDatadogAPIMetadata = []datadogAuthMetadataTestData{
 	{"", map[string]string{"query": "sum:trace.redis.command.hits{env:none,service:redis}.as_count()", "queryValue": "7"}, map[string]string{"apiKey": "apiKey"}, true},
 	// invalid query missing {
 	{"", map[string]string{"query": "sum:trace.redis.command.hits.as_count()", "queryValue": "7"}, map[string]string{}, true},
+	// metricUnavailableValue with API
+	{"", map[string]string{"query": "sum:trace.redis.command.hits{env:none,service:redis}.as_count()", "queryValue": "7", "metricUnavailableValue": "2.5"}, map[string]string{"apiKey": "apiKey", "appKey": "appKey", "datadogSite": "datadogSite"}, false},
 }
 
 // Helper function to create metadata and validate
@@ -323,5 +327,137 @@ func TestBuildMetricURL(t *testing.T) {
 	url := buildMetricURL("https://localhost:8080/apis/datadoghq.com/v1alpha1", "datadogMetricNamespace", "datadogMetricName")
 	if url != "https://localhost:8080/apis/datadoghq.com/v1alpha1/namespaces/datadogMetricNamespace/datadogMetricName" {
 		t.Error("Expected https://localhost:8080/apis/datadoghq.com/v1alpha1/namespaces/datadogMetricNamespace/datadogMetricName, got ", url)
+	}
+}
+
+func TestDatadogMetadataValidateUseFiller(t *testing.T) {
+	testCases := []struct {
+		name                   string
+		metricUnavailableValue string
+		useClusterAgent        bool
+		expectedUseFiller      bool
+		expectedFillValue      float64
+	}{
+		// API metadata tests
+		{"API: Not configured", "", false, false, 0},
+		{"API: Explicitly set to 0", "0", false, true, 0},
+		{"API: Positive value", "1.5", false, true, 1.5},
+		{"API: Negative value", "-1.0", false, true, -1},
+		{"API: Small positive value", "0.1", false, true, 0.1},
+
+		// Cluster Agent metadata tests
+		{"ClusterAgent: Not configured", "", true, false, 0},
+		{"ClusterAgent: Explicitly set to 0", "0", true, true, 0},
+		{"ClusterAgent: Positive value", "1.5", true, true, 1.5},
+		{"ClusterAgent: Negative value", "-1.0", true, true, -1},
+		{"ClusterAgent: Small positive value", "0.1", true, true, 0.1},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			testData := &datadogAuthMetadataTestData{
+				metadata:   map[string]string{},
+				authParams: map[string]string{},
+				isError:    false,
+			}
+
+			// Set required metadata based on mode
+			if tc.useClusterAgent {
+				// Cluster Agent mode requires different metadata
+				testData.authParams["datadogMetricsService"] = "datadog-metrics-service"
+				testData.authParams["datadogNamespace"] = "default"
+				testData.metadata["datadogMetricName"] = "test-metric"
+				testData.metadata["datadogMetricNamespace"] = "test-namespace"
+				testData.metadata["queryValue"] = "7"
+			} else {
+				// API mode requires query and credentials
+				testData.metadata["query"] = "sum:trace.redis.command.hits{env:none,service:redis}.as_count()"
+				testData.metadata["queryValue"] = "7"
+				testData.authParams["apiKey"] = "apiKey"
+				testData.authParams["appKey"] = "appKey"
+				testData.authParams["datadogSite"] = "datadogSite"
+			}
+
+			if tc.metricUnavailableValue != "" {
+				testData.metadata["metricUnavailableValue"] = tc.metricUnavailableValue
+			}
+
+			meta, err := createAndValidateMetadata(testData, tc.useClusterAgent, 0)
+			if err != nil {
+				t.Errorf("Validate() unexpected error = %v", err)
+			}
+			if meta.UseFiller != tc.expectedUseFiller {
+				t.Errorf("UseFiller = %v, want %v (metricUnavailableValue = %q)",
+					meta.UseFiller, tc.expectedUseFiller, tc.metricUnavailableValue)
+			}
+
+			// Check FillValue based on whether it should be set
+			if tc.expectedUseFiller {
+				if meta.FillValue == nil {
+					t.Errorf("FillValue is nil, want %v (metricUnavailableValue = %q)",
+						tc.expectedFillValue, tc.metricUnavailableValue)
+				} else if *meta.FillValue != tc.expectedFillValue {
+					t.Errorf("FillValue = %v, want %v (metricUnavailableValue = %q)",
+						*meta.FillValue, tc.expectedFillValue, tc.metricUnavailableValue)
+				}
+			} else {
+				if meta.FillValue != nil {
+					t.Errorf("FillValue = %v, want nil (metricUnavailableValue = %q)",
+						*meta.FillValue, tc.metricUnavailableValue)
+				}
+			}
+		})
+	}
+}
+
+func TestGetDatadogClusterAgentHTTPRequest(t *testing.T) {
+	testCases := []struct {
+		name               string
+		enableBearerAuth   bool
+		bearerToken        string
+		expectedAuthHeader bool
+	}{
+		{
+			name:               "with bearer auth",
+			enableBearerAuth:   true,
+			bearerToken:        "test-token",
+			expectedAuthHeader: true,
+		},
+		{
+			name:               "without bearer auth",
+			enableBearerAuth:   false,
+			bearerToken:        "",
+			expectedAuthHeader: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			scaler := &datadogScaler{
+				metadata: &datadogMetadata{
+					EnableBearerAuth: tc.enableBearerAuth,
+					BearerToken:      tc.bearerToken,
+				},
+			}
+
+			req, err := scaler.getDatadogClusterAgentHTTPRequest(
+				context.Background(),
+				"https://test.example.com",
+			)
+
+			if req == nil && err == nil {
+				t.Error("Expected request, got nil")
+			}
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			if tc.expectedAuthHeader {
+				if auth := req.Header.Get("Authorization"); auth == "" {
+					t.Error("Expected Authorization header")
+				}
+			}
+		})
 	}
 }

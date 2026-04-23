@@ -389,6 +389,18 @@ type (
 	// NOTE: Experimental
 	WorkerDeploymentSetRampingVersionResponse = internal.WorkerDeploymentSetRampingVersionResponse
 
+	// WorkerDeploymentSetManagerIdentityOptions provides options for
+	// [WorkerDeploymentHandle.SetManagerIdentity].
+	//
+	// NOTE: Experimental
+	WorkerDeploymentSetManagerIdentityOptions = internal.WorkerDeploymentSetManagerIdentityOptions
+
+	// WorkerDeploymentSetManagerIdentityResponse is the response for
+	// [WorkerDeploymentHandle.SetManagerIdentity].
+	//
+	// NOTE: Experimental
+	WorkerDeploymentSetManagerIdentityResponse = internal.WorkerDeploymentSetManagerIdentityResponse
+
 	// WorkerDeploymentDescribeVersionOptions provides options for
 	// [WorkerDeploymentHandle.DescribeVersion].
 	//
@@ -1043,7 +1055,7 @@ type (
 		// taskToken - is the value of the binary "TaskToken" field of the "ActivityInfo" struct retrieved inside the activity.
 		// details - is the progress you want to record along with heart beat for this activity. If the activity is canceled,
 		// the error returned will be a CanceledError. If the activity is paused by the server, the error returned will be a
-		// ErrActivityPaused.
+		// ErrActivityPaused. If the activity is reset by the server, the error returned will be a ErrActivityReset.
 		// Otherwise the errors it can return:
 		//  - serviceerror.NotFound
 		//  - serviceerror.Internal
@@ -1053,7 +1065,7 @@ type (
 		// RecordActivityHeartbeatByID records heartbeat for an activity.
 		// details - is the progress you want to record along with heart beat for this activity. If the activity is canceled,
 		// the error returned will be a CanceledError. If the activity is paused by the server, the error returned will be a
-		// ErrActivityPaused.
+		// ErrActivityPaused. If the activity is reset by the server, the error returned will be a ErrActivityReset.
 		// The errors it can return:
 		//  - serviceerror.NotFound
 		//  - serviceerror.Internal
@@ -1502,6 +1514,8 @@ func HistoryFromJSON(r io.Reader, options HistoryJSONOptions) (*historypb.Histor
 // Note, this uses a fixed header value for authentication. Many users that want
 // to rotate this value without reconnecting should use
 // [NewAPIKeyDynamicCredentials].
+//
+// Note, TLS is auto-enabled when API key is provided and TLS is not explicitly set/disabled.
 func NewAPIKeyStaticCredentials(apiKey string) Credentials {
 	return internal.NewAPIKeyStaticCredentials(apiKey)
 }
@@ -1516,6 +1530,8 @@ func NewAPIKeyStaticCredentials(apiKey string) Credentials {
 // "Authorization" header with "Bearer " + the given function result. If the
 // resulting string is non-empty, it will overwrite any "Authorization" header
 // that may be on the context or from existing header provider.
+//
+// Note, TLS is auto-enabled when API key is provided and TLS is not explicitly set/disabled.
 func NewAPIKeyDynamicCredentials(apiKeyCallback func(context.Context) (string, error)) Credentials {
 	return internal.NewAPIKeyDynamicCredentials(apiKeyCallback)
 }

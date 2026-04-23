@@ -9,9 +9,9 @@ SUFFIX ?=
 IMAGE_REGISTRY ?= ghcr.io
 IMAGE_REPO     ?= kedacore
 
-IMAGE_CONTROLLER ?= $(IMAGE_REGISTRY)/$(IMAGE_REPO)/keda$(SUFFIX):$(VERSION)
-IMAGE_ADAPTER    ?= $(IMAGE_REGISTRY)/$(IMAGE_REPO)/keda-metrics-apiserver$(SUFFIX):$(VERSION)
-IMAGE_WEBHOOKS   ?= $(IMAGE_REGISTRY)/$(IMAGE_REPO)/keda-admission-webhooks$(SUFFIX):$(VERSION)
+IMAGE_CONTROLLER = $(IMAGE_REGISTRY)/$(IMAGE_REPO)/keda$(SUFFIX):$(VERSION)
+IMAGE_ADAPTER    = $(IMAGE_REGISTRY)/$(IMAGE_REPO)/keda-metrics-apiserver$(SUFFIX):$(VERSION)
+IMAGE_WEBHOOKS   = $(IMAGE_REGISTRY)/$(IMAGE_REPO)/keda-admission-webhooks$(SUFFIX):$(VERSION)
 
 ARCH       ?=amd64
 CGO        ?=0
@@ -45,9 +45,9 @@ GO_LDFLAGS="-X=github.com/kedacore/keda/v2/version.GitCommit=$(GIT_COMMIT) -X=gi
 COSIGN_FLAGS ?= -y -a GIT_HASH=${GIT_COMMIT} -a GIT_VERSION=${VERSION} -a BUILD_DATE=${DATE}
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.33
+ENVTEST_K8S_VERSION = 1.35
 
-GOLANGCI_VERSION:=2.5.0
+GOLANGCI_VERSION:=2.8.0
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -59,10 +59,11 @@ SHELL = /usr/bin/env bash -o pipefail
 SCALERS_SCHEMA_SCALERS_BUILDER_FILE ?= pkg/scaling/scalers_builder.go
 SCALERS_SCHEMA_SCALERS_FILES_DIR ?= pkg/scalers
 SCALERS_SCHEMA_OUTPUT_FILE_PATH ?= schema/generated/
-SCALERS_SCHEMA_OUTPUT_FILE_NAME ?= scalers-metadata-schema
+SCALERS_SCHEMA_OUTPUT_FILE_NAME ?= scalers-schema
 
 ifneq '${VERSION}' 'main'
   OUTPUT_FILE_NAME :="${OUTPUT_FILE_NAME}-${VERSION}"
+  SCALERS_SCHEMA_OUTPUT_FILE_NAME:="${SCALERS_SCHEMA_OUTPUT_FILE_NAME}-${VERSION}"
 endif
 
 ##################################################
@@ -128,24 +129,6 @@ e2e-test-clean: get-cluster-context ## Delete all namespaces labeled with type=e
 	# and we get stranded on old versions when we try to upgrade
 	kubectl get crd -o name | grep kafka.strimzi.io | xargs -r kubectl delete --ignore-not-found=true --timeout=60s
 
-# The OpenShift tests are split into 3 targets because when we test the CMA operator,
-# we want to do the setup and cleanup with the operator, but still run the test suite
-# from the test image, so we need that granularity.
-.PHONY: e2e-test-openshift-setup
-e2e-test-openshift-setup: ## Setup the tests for OpenShift
-	@echo "--- Performing Setup ---"
-	cd tests; go test -v -timeout 15m -tags e2e ./utils/setup_test.go
-
-.PHONY: e2e-test-openshift
-e2e-test-openshift: ## Run tests for OpenShift
-	@echo "--- Running OpenShift KEDA Tests ---"
-	E2E_TEST_CONFIG=openshift-e2e.yaml go run -tags e2e ./tests/run-all.go
-
-.PHONY: e2e-test-openshift-clean
-e2e-test-openshift-clean: ## Cleanup the test environment for OpenShift
-	@echo "--- Cleaning Up ---"
-	cd tests; go test -v -timeout 60m -tags e2e ./utils/cleanup_test.go
-
 .PHONY: smoke-test
 smoke-test: ## Run e2e tests against Kubernetes cluster configured in ~/.kube/config.
 	./tests/run-smoke-tests.sh
@@ -156,15 +139,17 @@ smoke-test: ## Run e2e tests against Kubernetes cluster configured in ~/.kube/co
 
 ##@ Development
 
+CONTROLLER_GEN_PATHS = paths="./apis/..." paths="./controllers/..." paths="./pkg/..."
+
 manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) crd:crdVersions=v1,generateEmbeddedObjectMeta=true rbac:roleName=keda-operator paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) crd:crdVersions=v1,generateEmbeddedObjectMeta=true rbac:roleName=keda-operator $(CONTROLLER_GEN_PATHS) output:crd:artifacts:config=config/crd/bases
 	# withTriggers is only used for duck typing so we only need the deepcopy methods
 	# However operator-sdk generate doesn't appear to have an option for that
 	# until this issue is fixed: https://github.com/kubernetes-sigs/controller-tools/issues/398
 	rm config/crd/bases/keda.sh_withtriggers.yaml
 
-generate: controller-gen mockgen-gen proto-gen generate-scalers-schema ## Generate code containing DeepCopy, DeepCopyInto, DeepCopyObject method implementations (API), mocks and proto.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+generate: controller-gen mockgen-gen proto-gen ## Generate code containing DeepCopy, DeepCopyInto, DeepCopyObject method implementations (API), mocks and proto.
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" $(CONTROLLER_GEN_PATHS)
 
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -172,21 +157,12 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-tooldeps: ## Update tooldeps
-	hack/tooldeps/update.sh
-
-tooldeps-check: ## Check whether tooldeps are out of date
-	rm -rf hack/tooldeps-check
-	cp -a hack/tooldeps hack/tooldeps-check
-	hack/tooldeps-check/update.sh
-	diff -uNr hack/tooldeps hack/tooldeps-check || { echo "tooldeps are out of date. Run 'make tooldeps' to correct"; rm -rf hack/tooldeps-check; false; }
-	rm -rf hack/tooldeps-check
-	echo "tooldeps are current"
-
+.PHONY: golangci
 golangci: ## Run golangci against code.
-ifneq ($(HAS_GOLANGCI_VERSION), $(GOLANGCI_VERSION))
-	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v$(GOLANGCI_VERSION)
-endif
+	@HAS_GOLANGCI_VERSION=$$($(GOPATH)/bin/golangci-lint version --short 2>/dev/null || echo ""); \
+	if [ "$$HAS_GOLANGCI_VERSION" != "$(GOLANGCI_VERSION)" ]; then \
+		curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(GOPATH)/bin v$(GOLANGCI_VERSION); \
+	fi
 	golangci-lint run
 
 verify-manifests: ## Verify manifests are up to date.
@@ -343,6 +319,9 @@ deploy: install ## Deploy controller to the K8s cluster specified in ~/.kube/con
 		cd config/e2e && \
 		$(KUSTOMIZE) edit add patch --path opentelemetry/patch_operator.yml --group apps --kind Deployment --name keda-operator --version v1; \
 	fi
+
+	cd config/e2e && \
+	$(KUSTOMIZE) edit add patch --path file_auth/patch_operator.yml --group apps --kind Deployment --name keda-operator --version v1
 
 	cd config/webhooks && \
 	$(KUSTOMIZE) edit set image ghcr.io/kedacore/keda-admission-webhooks=${IMAGE_WEBHOOKS}

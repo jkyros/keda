@@ -139,12 +139,8 @@ type (
 		// If true the worker is opting in to build ID based versioning.
 		UseBuildIDForVersioning bool
 
-		// The worker deployment version identifier.
-		// If non-empty, the [WorkerBuildID] from it, ignoring any previous value.
-		WorkerDeploymentVersion WorkerDeploymentVersion
-
-		// The Versioning Behavior for workflows that do not set one when registering the workflow type.
-		DefaultVersioningBehavior VersioningBehavior
+		// Worker deployment options containing all deployment versioning configuration.
+		DeploymentOptions WorkerDeploymentOptions
 
 		MetricsHandler metrics.Handler
 
@@ -225,7 +221,7 @@ type (
 		// The name of the deployment this worker version belongs to
 		DeploymentName string
 		// The build id specific to this worker
-		BuildId string
+		BuildID string
 	}
 )
 
@@ -344,18 +340,19 @@ func newWorkflowTaskWorkerInternal(
 	}
 
 	bwo := baseWorkerOptions{
-		pollerRate:       defaultPollerRate,
-		slotSupplier:     params.Tuner.GetWorkflowTaskSlotSupplier(),
-		maxTaskPerSecond: defaultWorkerTaskExecutionRate,
-		taskPollers:      scalableTaskPollers,
-		taskProcessor:    taskProcessor,
-		workerType:       "WorkflowWorker",
-		identity:         params.Identity,
-		buildId:          params.getBuildID(),
-		logger:           params.Logger,
-		stopTimeout:      params.WorkerStopTimeout,
-		fatalErrCb:       params.WorkerFatalErrorCallback,
-		metricsHandler:   params.MetricsHandler,
+		pollerRate:        defaultPollerRate,
+		slotSupplier:      params.Tuner.GetWorkflowTaskSlotSupplier(),
+		maxTaskPerSecond:  defaultWorkerTaskExecutionRate,
+		taskPollers:       scalableTaskPollers,
+		taskProcessor:     taskProcessor,
+		workerType:        "WorkflowWorker",
+		identity:          params.Identity,
+		buildId:           params.getBuildID(),
+		deploymentOptions: params.DeploymentOptions,
+		logger:            params.Logger,
+		stopTimeout:       params.WorkerStopTimeout,
+		fatalErrCb:        params.WorkerFatalErrorCallback,
+		metricsHandler:    params.MetricsHandler,
 		slotReservationData: slotReservationData{
 			taskQueue: params.TaskQueue,
 		},
@@ -451,8 +448,17 @@ func newSessionWorker(client *WorkflowClient, params workerExecutionParameters, 
 	creationTaskqueue := getCreationTaskqueue(params.TaskQueue)
 	params.BackgroundContext = context.WithValue(params.BackgroundContext, sessionEnvironmentContextKey, sessionEnvironment)
 	params.TaskQueue = sessionEnvironment.GetResourceSpecificTaskqueue()
+	// For the resource specific task queue, we don't need to include deployment options
+	// Save them to restore later
+	deployments := params.DeploymentOptions
+	useBuildIDForVersioning := params.UseBuildIDForVersioning
+	// Disable versioning for activity worker within session, but still send deployment name for debug purpose
+	params.DeploymentOptions.UseVersioning = false
+	params.UseBuildIDForVersioning = false
 	activityWorker := newActivityWorker(client, params,
-		&workerOverrides{slotSupplier: params.Tuner.GetSessionActivitySlotSupplier()}, env, nil)
+		&workerOverrides{
+			slotSupplier: params.Tuner.GetSessionActivitySlotSupplier(),
+		}, env, nil)
 
 	params.ActivityTaskPollerBehavior = NewPollerBehaviorSimpleMaximum(
 		PollerBehaviorSimpleMaximumOptions{
@@ -460,6 +466,8 @@ func newSessionWorker(client *WorkflowClient, params workerExecutionParameters, 
 		},
 	)
 	params.TaskQueue = creationTaskqueue
+	params.DeploymentOptions = deployments
+	params.UseBuildIDForVersioning = useBuildIDForVersioning
 	// Although we have session token bucket to limit session size across creation
 	// and recreation, we also limit it here for creation only
 	overrides := &workerOverrides{}
@@ -521,7 +529,6 @@ func newActivityWorker(
 	} else {
 		slotSupplier = params.Tuner.GetActivityTaskSlotSupplier()
 	}
-
 	bwo := baseWorkerOptions{
 		pollerRate:       defaultPollerRate,
 		slotSupplier:     slotSupplier,
@@ -1164,6 +1171,10 @@ type AggregatedWorker struct {
 	fatalErr     error
 	fatalErrLock sync.Mutex
 	capabilities *workflowservice.GetSystemInfoResponse_Capabilities
+
+	workerInstanceKey     string
+	plugins               []WorkerPlugin
+	pluginRegistryOptions *WorkerPluginConfigureWorkerRegistryOptions // Never nil
 }
 
 // RegisterWorkflow registers workflow implementation with the AggregatedWorker
@@ -1172,9 +1183,12 @@ func (aw *AggregatedWorker) RegisterWorkflow(w interface{}) {
 		panic("workflow worker disabled, cannot register workflow")
 	}
 	if aw.executionParams.UseBuildIDForVersioning &&
-		(aw.executionParams.WorkerDeploymentVersion != WorkerDeploymentVersion{}) &&
-		aw.executionParams.DefaultVersioningBehavior == VersioningBehaviorUnspecified {
+		(aw.executionParams.DeploymentOptions.Version != WorkerDeploymentVersion{}) &&
+		aw.executionParams.DeploymentOptions.DefaultVersioningBehavior == VersioningBehaviorUnspecified {
 		panic("workflow type does not have a versioning behavior")
+	}
+	if aw.pluginRegistryOptions.OnRegisterWorkflow != nil {
+		aw.pluginRegistryOptions.OnRegisterWorkflow(w, RegisterWorkflowOptions{})
 	}
 	aw.registry.RegisterWorkflow(w)
 }
@@ -1185,10 +1199,13 @@ func (aw *AggregatedWorker) RegisterWorkflowWithOptions(w interface{}, options R
 		panic("workflow worker disabled, cannot register workflow")
 	}
 	if options.VersioningBehavior == VersioningBehaviorUnspecified &&
-		(aw.executionParams.WorkerDeploymentVersion != WorkerDeploymentVersion{}) &&
+		(aw.executionParams.DeploymentOptions.Version != WorkerDeploymentVersion{}) &&
 		aw.executionParams.UseBuildIDForVersioning &&
-		aw.executionParams.DefaultVersioningBehavior == VersioningBehaviorUnspecified {
+		aw.executionParams.DeploymentOptions.DefaultVersioningBehavior == VersioningBehaviorUnspecified {
 		panic("workflow type does not have a versioning behavior")
+	}
+	if aw.pluginRegistryOptions.OnRegisterWorkflow != nil {
+		aw.pluginRegistryOptions.OnRegisterWorkflow(w, options)
 	}
 	aw.registry.RegisterWorkflowWithOptions(w, options)
 }
@@ -1199,32 +1216,47 @@ func (aw *AggregatedWorker) RegisterDynamicWorkflow(w interface{}, options Dynam
 		panic("workflow worker disabled, cannot register workflow")
 	}
 	if options.LoadDynamicRuntimeOptions == nil && aw.executionParams.UseBuildIDForVersioning &&
-		(aw.executionParams.WorkerDeploymentVersion != WorkerDeploymentVersion{}) &&
-		aw.executionParams.DefaultVersioningBehavior == VersioningBehaviorUnspecified {
+		(aw.executionParams.DeploymentOptions.Version != WorkerDeploymentVersion{}) &&
+		aw.executionParams.DeploymentOptions.DefaultVersioningBehavior == VersioningBehaviorUnspecified {
 		panic("dynamic workflow does not have a versioning behavior")
+	}
+	if aw.pluginRegistryOptions.OnRegisterDynamicWorkflow != nil {
+		aw.pluginRegistryOptions.OnRegisterDynamicWorkflow(w, DynamicRegisterWorkflowOptions{})
 	}
 	aw.registry.RegisterDynamicWorkflow(w, options)
 }
 
 // RegisterActivity registers activity implementation with the AggregatedWorker
 func (aw *AggregatedWorker) RegisterActivity(a interface{}) {
+	if aw.pluginRegistryOptions.OnRegisterActivity != nil {
+		aw.pluginRegistryOptions.OnRegisterActivity(a, RegisterActivityOptions{})
+	}
 	aw.registry.RegisterActivity(a)
 }
 
 // RegisterActivityWithOptions registers activity implementation with the AggregatedWorker
 func (aw *AggregatedWorker) RegisterActivityWithOptions(a interface{}, options RegisterActivityOptions) {
+	if aw.pluginRegistryOptions.OnRegisterActivity != nil {
+		aw.pluginRegistryOptions.OnRegisterActivity(a, options)
+	}
 	aw.registry.RegisterActivityWithOptions(a, options)
 }
 
 // RegisterDynamicActivity registers the dynamic activity function with options.
 // Registering activities via a structure is not supported for dynamic activities.
 func (aw *AggregatedWorker) RegisterDynamicActivity(a interface{}, options DynamicRegisterActivityOptions) {
+	if aw.pluginRegistryOptions.OnRegisterActivity != nil {
+		aw.pluginRegistryOptions.OnRegisterDynamicActivity(a, options)
+	}
 	aw.registry.RegisterDynamicActivity(a, options)
 }
 
 func (aw *AggregatedWorker) RegisterNexusService(service *nexus.Service) {
 	if aw.started.Load() {
 		panic(errors.New("cannot register Nexus services after worker start"))
+	}
+	if aw.pluginRegistryOptions.OnRegisterNexusService != nil {
+		aw.pluginRegistryOptions.OnRegisterNexusService(service)
 	}
 	aw.registry.RegisterNexusService(service)
 }
@@ -1407,35 +1439,51 @@ func (aw *AggregatedWorker) Stop() {
 		close(aw.stopC)
 	}
 
-	if !util.IsInterfaceNil(aw.workflowWorker) {
-		if aw.client.eagerDispatcher != nil {
-			aw.client.eagerDispatcher.deregisterWorker(aw.workflowWorker)
+	// Issue stop through plugins
+	stop := func(context.Context, WorkerPluginStopWorkerOptions) {
+		if !util.IsInterfaceNil(aw.workflowWorker) {
+			if aw.client.eagerDispatcher != nil {
+				aw.client.eagerDispatcher.deregisterWorker(aw.workflowWorker)
+			}
+			aw.workflowWorker.Stop()
 		}
-		aw.workflowWorker.Stop()
+		if !util.IsInterfaceNil(aw.activityWorker) {
+			aw.activityWorker.Stop()
+		}
+		if !util.IsInterfaceNil(aw.sessionWorker) {
+			aw.sessionWorker.Stop()
+		}
+		if !util.IsInterfaceNil(aw.nexusWorker) {
+			aw.nexusWorker.Stop()
+		}
 	}
-	if !util.IsInterfaceNil(aw.activityWorker) {
-		aw.activityWorker.Stop()
+	for i := len(aw.plugins) - 1; i >= 0; i-- {
+		plugin := aw.plugins[i]
+		next := stop
+		stop = func(ctx context.Context, options WorkerPluginStopWorkerOptions) {
+			plugin.StopWorker(ctx, options, next)
+		}
 	}
-	if !util.IsInterfaceNil(aw.sessionWorker) {
-		aw.sessionWorker.Stop()
-	}
-	if !util.IsInterfaceNil(aw.nexusWorker) {
-		aw.nexusWorker.Stop()
-	}
+	stop(context.Background(), WorkerPluginStopWorkerOptions{
+		WorkerInstanceKey: aw.workerInstanceKey,
+	})
 
 	aw.logger.Info("Stopped Worker")
 }
 
 // WorkflowReplayer is used to replay workflow code from an event history
 type WorkflowReplayer struct {
-	registry                 *registry
-	dataConverter            converter.DataConverter
-	failureConverter         converter.FailureConverter
-	contextPropagators       []ContextPropagator
-	enableLoggingInReplay    bool
-	disableDeadlockDetection bool
-	mu                       sync.Mutex
-	workflowExecutionResults map[string]*commonpb.Payloads
+	registry                    *registry
+	dataConverter               converter.DataConverter
+	failureConverter            converter.FailureConverter
+	contextPropagators          []ContextPropagator
+	enableLoggingInReplay       bool
+	disableDeadlockDetection    bool
+	mu                          sync.Mutex
+	workflowExecutionResults    map[string]*commonpb.Payloads
+	workflowReplayerInstanceKey string
+	plugins                     []WorkerPlugin
+	pluginRegistryOptions       *WorkerPluginConfigureWorkflowReplayerRegistryOptions
 }
 
 // WorkflowReplayerOptions are options for creating a workflow replayer.
@@ -1471,6 +1519,14 @@ type WorkflowReplayerOptions struct {
 	// Optional: Disable the default 1 second deadlock detection timeout. This option can be used to step through
 	// workflow code with multiple breakpoints in a debugger.
 	DisableDeadlockDetection bool
+
+	// Plugins that can configure options and intercept replays.
+	//
+	// Plugins themselves should never mutate this field, the behavior is
+	// undefined.
+	//
+	// NOTE: Experimental
+	Plugins []WorkerPlugin
 }
 
 // ReplayWorkflowHistoryOptions are options for replaying a workflow.
@@ -1482,31 +1538,56 @@ type ReplayWorkflowHistoryOptions struct {
 
 // NewWorkflowReplayer creates an instance of the WorkflowReplayer.
 func NewWorkflowReplayer(options WorkflowReplayerOptions) (*WorkflowReplayer, error) {
+	// Configure replayer
+	workflowReplayerInstanceKey := uuid.NewString()
+	var pluginRegistryOptions WorkerPluginConfigureWorkflowReplayerRegistryOptions
+	for _, plugin := range options.Plugins {
+		if err := plugin.ConfigureWorkflowReplayer(context.Background(), WorkerPluginConfigureWorkflowReplayerOptions{
+			WorkflowReplayerInstanceKey:     workflowReplayerInstanceKey,
+			WorkflowReplayerOptions:         &options,
+			WorkflowReplayerRegistryOptions: &pluginRegistryOptions,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
 	registry := newRegistryWithOptions(registryOptions{disableAliasing: options.DisableRegistrationAliasing})
 	registry.interceptors = options.Interceptors
 	return &WorkflowReplayer{
-		registry:                 registry,
-		dataConverter:            options.DataConverter,
-		failureConverter:         options.FailureConverter,
-		contextPropagators:       options.ContextPropagators,
-		enableLoggingInReplay:    options.EnableLoggingInReplay,
-		disableDeadlockDetection: options.DisableDeadlockDetection,
-		workflowExecutionResults: make(map[string]*commonpb.Payloads),
+		registry:                    registry,
+		dataConverter:               options.DataConverter,
+		failureConverter:            options.FailureConverter,
+		contextPropagators:          options.ContextPropagators,
+		enableLoggingInReplay:       options.EnableLoggingInReplay,
+		disableDeadlockDetection:    options.DisableDeadlockDetection,
+		workflowExecutionResults:    make(map[string]*commonpb.Payloads),
+		workflowReplayerInstanceKey: workflowReplayerInstanceKey,
+		plugins:                     options.Plugins,
+		pluginRegistryOptions:       &pluginRegistryOptions,
 	}, nil
 }
 
 // RegisterWorkflow registers workflow function to replay
 func (aw *WorkflowReplayer) RegisterWorkflow(w interface{}) {
+	if aw.pluginRegistryOptions.OnRegisterWorkflow != nil {
+		aw.pluginRegistryOptions.OnRegisterWorkflow(w, RegisterWorkflowOptions{})
+	}
 	aw.registry.RegisterWorkflow(w)
 }
 
 // RegisterWorkflowWithOptions registers workflow function with custom workflow name to replay
 func (aw *WorkflowReplayer) RegisterWorkflowWithOptions(w interface{}, options RegisterWorkflowOptions) {
+	if aw.pluginRegistryOptions.OnRegisterWorkflow != nil {
+		aw.pluginRegistryOptions.OnRegisterWorkflow(w, options)
+	}
 	aw.registry.RegisterWorkflowWithOptions(w, options)
 }
 
 // RegisterDynamicWorkflow registers a dynamic workflow function to replay
 func (aw *WorkflowReplayer) RegisterDynamicWorkflow(w interface{}, options DynamicRegisterWorkflowOptions) {
+	if aw.pluginRegistryOptions.OnRegisterDynamicWorkflow != nil {
+		aw.pluginRegistryOptions.OnRegisterDynamicWorkflow(w, options)
+	}
 	aw.registry.RegisterDynamicWorkflow(w, options)
 }
 
@@ -1615,7 +1696,47 @@ func (aw *WorkflowReplayer) GetWorkflowResult(workflowID string, valuePtr interf
 	return dc.FromPayloads(payloads, valuePtr)
 }
 
-func (aw *WorkflowReplayer) replayWorkflowHistory(logger log.Logger, service workflowservice.WorkflowServiceClient, namespace string, originalExecution WorkflowExecution, history *historypb.History) error {
+func (aw *WorkflowReplayer) replayWorkflowHistory(
+	logger log.Logger,
+	service workflowservice.WorkflowServiceClient,
+	namespace string,
+	originalExecution WorkflowExecution,
+	history *historypb.History,
+) error {
+	replay := func(ctx context.Context, options WorkerPluginReplayWorkflowOptions) error {
+		return aw.replayWorkflowHistoryRoot(
+			options.Logger,
+			options.WorkflowServiceClient,
+			options.Namespace,
+			options.OriginalExecution,
+			options.History,
+		)
+	}
+	for i := len(aw.plugins) - 1; i >= 0; i-- {
+		plugin := aw.plugins[i]
+		next := replay
+		replay = func(ctx context.Context, options WorkerPluginReplayWorkflowOptions) error {
+			return plugin.ReplayWorkflow(ctx, options, next)
+		}
+	}
+	return replay(context.Background(), WorkerPluginReplayWorkflowOptions{
+		WorkflowReplayerInstanceKey: aw.workflowReplayerInstanceKey,
+		History:                     history,
+		Logger:                      logger,
+		WorkflowServiceClient:       service,
+		Namespace:                   namespace,
+		OriginalExecution:           originalExecution,
+		WorkflowReplayRegistry:      aw,
+	})
+}
+
+func (aw *WorkflowReplayer) replayWorkflowHistoryRoot(
+	logger log.Logger,
+	service workflowservice.WorkflowServiceClient,
+	namespace string,
+	originalExecution WorkflowExecution,
+	history *historypb.History,
+) error {
 	taskQueue := "ReplayTaskQueue"
 	events := history.Events
 	if events == nil {
@@ -1707,16 +1828,19 @@ func (aw *WorkflowReplayer) replayWorkflowHistory(logger log.Logger, service wor
 		return err
 	}
 
-	if failedReq, ok := resp.(*workflowservice.RespondWorkflowTaskFailedRequest); ok {
-		return fmt.Errorf("replay workflow failed with failure: %v", failedReq.GetFailure())
+	if resp != nil {
+		if failedReq, ok := resp.rawRequest.(*workflowservice.RespondWorkflowTaskFailedRequest); ok {
+			return fmt.Errorf("replay workflow failed with failure: %v", failedReq.GetFailure())
+		}
 	}
 
 	if last.GetEventType() != enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED && last.GetEventType() != enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW {
 		return nil
 	}
 
+	var rawRequest proto.Message
 	if resp != nil {
-		completeReq, ok := resp.(*workflowservice.RespondWorkflowTaskCompletedRequest)
+		completeReq, ok := resp.rawRequest.(*workflowservice.RespondWorkflowTaskCompletedRequest)
 		if ok {
 			for _, d := range completeReq.Commands {
 				if d.GetCommandType() == enumspb.COMMAND_TYPE_CONTINUE_AS_NEW_WORKFLOW_EXECUTION {
@@ -1734,8 +1858,9 @@ func (aw *WorkflowReplayer) replayWorkflowHistory(logger log.Logger, service wor
 				}
 			}
 		}
+		rawRequest = resp.rawRequest
 	}
-	return fmt.Errorf("replay workflow doesn't return the same result as the last event, resp: %[1]T{%[1]v}, last: %[2]T{%[2]v}", resp, last)
+	return fmt.Errorf("replay workflow doesn't return the same result as the last event, resp: %[1]T{%[1]v}, last: %[2]T{%[2]v}", rawRequest, last)
 }
 
 // HistoryFromJSON deserializes history from a reader of JSON bytes. This does
@@ -1816,6 +1941,23 @@ func NewAggregatedWorker(client *WorkflowClient, taskQueue string, options Worke
 	if strings.HasPrefix(taskQueue, temporalPrefix) {
 		panic(temporalPrefixError)
 	}
+
+	// Combine client-provided worker plugins with current options set and apply to options
+	workerInstanceKey := uuid.NewString()
+	var pluginRegistryOptions WorkerPluginConfigureWorkerRegistryOptions
+	plugins := append(append([]WorkerPlugin(nil), client.workerPlugins...), options.Plugins...)
+	for _, plugin := range plugins {
+		// No meaningful context to pass at this time, and all errors are panics when configuring worker
+		if err := plugin.ConfigureWorker(context.Background(), WorkerPluginConfigureWorkerOptions{
+			WorkerInstanceKey:     workerInstanceKey,
+			TaskQueue:             taskQueue,
+			WorkerOptions:         &options,
+			WorkerRegistryOptions: &pluginRegistryOptions,
+		}); err != nil {
+			panic(err)
+		}
+	}
+
 	setClientDefaults(client)
 	setWorkerOptionsDefaults(&options)
 	ctx := options.BackgroundActivityContext
@@ -1846,7 +1988,7 @@ func NewAggregatedWorker(client *WorkflowClient, taskQueue string, options Worke
 	}
 
 	if (options.DeploymentOptions.Version != WorkerDeploymentVersion{}) {
-		options.BuildID = options.DeploymentOptions.Version.BuildId
+		options.BuildID = options.DeploymentOptions.Version.BuildID
 	}
 	if !options.DeploymentOptions.UseVersioning &&
 		options.DeploymentOptions.DefaultVersioningBehavior != VersioningBehaviorUnspecified {
@@ -1881,10 +2023,6 @@ func NewAggregatedWorker(client *WorkflowClient, taskQueue string, options Worke
 	// All worker systems that depend on the capabilities to process workflow/activity tasks
 	// should take a pointer to this struct and wait for it to be populated when the worker is run.
 	var capabilities workflowservice.GetSystemInfoResponse_Capabilities
-	workerDeploymentVersion := WorkerDeploymentVersion{}
-	if (options.DeploymentOptions.Version != WorkerDeploymentVersion{}) {
-		workerDeploymentVersion = options.DeploymentOptions.Version
-	}
 
 	cache := NewWorkerCache()
 	workerParams := workerExecutionParameters{
@@ -1896,8 +2034,7 @@ func NewAggregatedWorker(client *WorkflowClient, taskQueue string, options Worke
 		Identity:                         client.identity,
 		WorkerBuildID:                    options.BuildID,
 		UseBuildIDForVersioning:          options.UseBuildIDForVersioning || options.DeploymentOptions.UseVersioning,
-		WorkerDeploymentVersion:          workerDeploymentVersion,
-		DefaultVersioningBehavior:        options.DeploymentOptions.DefaultVersioningBehavior,
+		DeploymentOptions:                options.DeploymentOptions,
 		MetricsHandler:                   client.metricsHandler.WithTags(metrics.TaskQueueTags(taskQueue)),
 		Logger:                           client.logger,
 		EnableLoggingInReplay:            options.EnableLoggingInReplay,
@@ -2009,17 +2146,35 @@ func NewAggregatedWorker(client *WorkflowClient, taskQueue string, options Worke
 	}
 
 	aw = &AggregatedWorker{
-		client:          client,
-		workflowWorker:  workflowWorker,
-		activityWorker:  activityWorker,
-		sessionWorker:   sessionWorker,
-		logger:          workerParams.Logger,
-		registry:        registry,
-		stopC:           make(chan struct{}),
-		capabilities:    &capabilities,
-		executionParams: workerParams,
+		client:                client,
+		workflowWorker:        workflowWorker,
+		activityWorker:        activityWorker,
+		sessionWorker:         sessionWorker,
+		logger:                workerParams.Logger,
+		registry:              registry,
+		stopC:                 make(chan struct{}),
+		capabilities:          &capabilities,
+		executionParams:       workerParams,
+		workerInstanceKey:     workerInstanceKey,
+		plugins:               plugins,
+		pluginRegistryOptions: &pluginRegistryOptions,
 	}
-	aw.memoizedStart = sync.OnceValue(aw.start)
+
+	// Set memoized start as a once-value that invokes plugins first
+	aw.memoizedStart = sync.OnceValue(func() error {
+		start := func(context.Context, WorkerPluginStartWorkerOptions) error { return aw.start() }
+		for i := len(plugins) - 1; i >= 0; i-- {
+			plugin := plugins[i]
+			next := start
+			start = func(ctx context.Context, options WorkerPluginStartWorkerOptions) error {
+				return plugin.StartWorker(ctx, options, next)
+			}
+		}
+		return start(context.Background(), WorkerPluginStartWorkerOptions{
+			WorkerInstanceKey: workerInstanceKey,
+			WorkerRegistry:    aw,
+		})
+	})
 	return aw
 }
 
@@ -2287,26 +2442,26 @@ func executeFunction(fn interface{}, args []interface{}) (interface{}, error) {
 func workerDeploymentVersionFromProto(wd *deploymentpb.WorkerDeploymentVersion) WorkerDeploymentVersion {
 	return WorkerDeploymentVersion{
 		DeploymentName: wd.DeploymentName,
-		BuildId:        wd.BuildId,
+		BuildID:        wd.BuildId,
 	}
 }
 
 func (wd *WorkerDeploymentVersion) toProto() *deploymentpb.WorkerDeploymentVersion {
 	return &deploymentpb.WorkerDeploymentVersion{
 		DeploymentName: wd.DeploymentName,
-		BuildId:        wd.BuildId,
+		BuildId:        wd.BuildID,
 	}
 }
 
 func (wd *WorkerDeploymentVersion) toCanonicalString() string {
-	return fmt.Sprintf("%s.%s", wd.DeploymentName, wd.BuildId)
+	return fmt.Sprintf("%s.%s", wd.DeploymentName, wd.BuildID)
 }
 
 func workerDeploymentVersionFromString(version string) *WorkerDeploymentVersion {
 	if splitVersion := strings.SplitN(version, ".", 2); len(splitVersion) == 2 {
 		return &WorkerDeploymentVersion{
 			DeploymentName: splitVersion[0],
-			BuildId:        splitVersion[1],
+			BuildID:        splitVersion[1],
 		}
 	}
 	return nil
@@ -2318,6 +2473,6 @@ func workerDeploymentVersionFromProtoOrString(wd *deploymentpb.WorkerDeploymentV
 	}
 	return &WorkerDeploymentVersion{
 		DeploymentName: wd.DeploymentName,
-		BuildId:        wd.BuildId,
+		BuildID:        wd.BuildId,
 	}
 }

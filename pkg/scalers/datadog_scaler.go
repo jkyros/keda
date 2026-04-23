@@ -67,9 +67,9 @@ type datadogMetadata struct {
 	LastAvailablePointOffset int     `keda:"name=lastAvailablePointOffset,order=triggerMetadata, default=0"`
 
 	// TriggerMetadata Common
-	UseClusterAgentProxy bool    `keda:"name=useClusterAgentProxy, order=triggerMetadata, default=false"`
-	HpaMetricName        string  `keda:"name=hpaMetricName,          order=triggerMetadata, optional"`
-	FillValue            float64 `keda:"name=metricUnavailableValue, order=triggerMetadata, default=0"`
+	UseClusterAgentProxy bool     `keda:"name=useClusterAgentProxy, order=triggerMetadata, default=false"`
+	HpaMetricName        string   `keda:"name=hpaMetricName,          order=triggerMetadata, optional"`
+	FillValue            *float64 `keda:"name=metricUnavailableValue, order=triggerMetadata, optional"`
 	UseFiller            bool
 	TargetValue          float64       `keda:"name=targetValue;queryValue, order=triggerMetadata, default=-1"`
 	Timeout              time.Duration `keda:"name=timeout,             	order=triggerMetadata, optional"`
@@ -199,6 +199,13 @@ func validateAPIMetadata(meta *datadogMetadata, config *scalersconfig.ScalerConf
 	meta.HpaMetricName = meta.Query[0:idx]
 	meta.HpaMetricName = GenerateMetricNameWithIndex(config.TriggerIndex, kedautil.NormalizeString(fmt.Sprintf("datadog-%s", meta.HpaMetricName)))
 
+	// Set UseFiller flag if metricUnavailableValue is explicitly configured
+	if meta.FillValue != nil {
+		meta.UseFiller = true
+	}
+	meta.HpaMetricName = meta.Query[0:idx]
+	meta.HpaMetricName = GenerateMetricNameWithIndex(config.TriggerIndex, kedautil.NormalizeString(fmt.Sprintf("datadog-%s", meta.HpaMetricName)))
+
 	return nil
 }
 
@@ -247,6 +254,11 @@ func validateClusterAgentMetadata(meta *datadogMetadata, config *scalersconfig.S
 
 	meta.HpaMetricName = "datadogmetric@" + meta.DatadogMetricNamespace + ":" + meta.DatadogMetricName
 	meta.DatadogMetricServiceURL = buildClusterAgentURL(meta.DatadogMetricsService, meta.DatadogNamespace, meta.DatadogMetricsServicePort)
+
+	// Set UseFiller flag if metricUnavailableValue is explicitly configured
+	if meta.FillValue != nil {
+		meta.UseFiller = true
+	}
 
 	return nil
 }
@@ -310,6 +322,15 @@ func (s *datadogScaler) getQueryResult(ctx context.Context) (float64, error) {
 			return -1, fmt.Errorf("your Datadog account reached the %s queries per %s seconds rate limit, next limit reset will happen in %s seconds", rateLimit, rateLimitPeriod, rateLimitReset)
 		}
 
+		if r.StatusCode == http.StatusUnprocessableEntity {
+			if s.metadata.UseFiller {
+				s.logger.V(1).Info("Datadog metrics unavailable, using FillValue",
+					"statusCode", r.StatusCode,
+					"fillValue", *s.metadata.FillValue)
+				return *s.metadata.FillValue, nil
+			}
+		}
+
 		if r.StatusCode != 200 {
 			if err != nil {
 				return -1, fmt.Errorf("error when retrieving Datadog metrics: %w", err)
@@ -351,7 +372,9 @@ func (s *datadogScaler) getQueryResult(ctx context.Context) (float64, error) {
 		if !s.metadata.UseFiller {
 			return 0, fmt.Errorf("no Datadog metrics returned for the given time window")
 		}
-		return s.metadata.FillValue, nil
+		s.logger.V(1).Info("No Datadog metrics returned, using FillValue",
+			"fillValue", *s.metadata.FillValue)
+		return *s.metadata.FillValue, nil
 	}
 
 	// Require queryAggregator be set explicitly for multi-query
@@ -380,7 +403,10 @@ func (s *datadogScaler) getQueryResult(ctx context.Context) (float64, error) {
 			if !s.metadata.UseFiller {
 				return 0, fmt.Errorf("no Datadog metrics returned for the given time window")
 			}
-			return s.metadata.FillValue, nil
+			s.logger.V(1).Info("No valid data points returned, using FillValue",
+				"series", i,
+				"fillValue", *s.metadata.FillValue)
+			return *s.metadata.FillValue, nil
 		}
 		// Return the last point from the series
 		results[i] = *points[index][1]
@@ -395,6 +421,7 @@ func (s *datadogScaler) getQueryResult(ctx context.Context) (float64, error) {
 	}
 }
 
+// getDatadogMetricValue retrieves metric value from Datadog Cluster Agent
 func (s *datadogScaler) getDatadogMetricValue(req *http.Request) (float64, error) {
 	resp, err := s.httpClient.Do(req)
 
@@ -407,9 +434,26 @@ func (s *datadogScaler) getDatadogMetricValue(req *http.Request) (float64, error
 
 	if resp.StatusCode != http.StatusOK {
 		r := gjson.GetBytes(body, "message")
+		errMessage := ""
 		if r.Type == gjson.String {
-			return 0, fmt.Errorf("error getting metric value: %s", r.String())
+			errMessage = r.String()
 		}
+
+		if resp.StatusCode == http.StatusUnprocessableEntity {
+			if s.metadata.UseFiller {
+				s.logger.V(1).Info("Datadog metric unavailable, using FillValue",
+					"statusCode", resp.StatusCode,
+					"fillValue", *s.metadata.FillValue,
+					"message", errMessage)
+				return *s.metadata.FillValue, nil
+			}
+		}
+
+		// Return error if no FillValue configured
+		if errMessage != "" {
+			return 0, fmt.Errorf("error getting metric value (status %d): %s", resp.StatusCode, errMessage)
+		}
+		return 0, fmt.Errorf("error getting metric value: unexpected status code %d", resp.StatusCode)
 	}
 
 	valueLocation := "items.0.value"
@@ -430,29 +474,16 @@ func (s *datadogScaler) getDatadogMetricValue(req *http.Request) (float64, error
 }
 
 func (s *datadogScaler) getDatadogClusterAgentHTTPRequest(ctx context.Context, url string) (*http.Request, error) {
-	var req *http.Request
-	var err error
-
-	switch {
-	case s.metadata.EnableBearerAuth:
-		req, err = http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", s.metadata.BearerToken))
-		if err != nil {
-			return nil, err
-		}
-		return req, nil
-
-	default:
-		req, err = http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			return req, err
-		}
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, nil
+	if s.metadata.EnableBearerAuth {
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", s.metadata.BearerToken))
+	}
+
+	return req, nil
 }
 
 // GetMetricSpecForScaling returns the MetricSpec for the Horizontal Pod Autoscaler
@@ -525,9 +556,6 @@ func (s *datadogMetadata) Validate() error {
 		if _, err := parseDatadogQuery(s.Query); err != nil {
 			return fmt.Errorf("error in query: %w", err)
 		}
-	}
-	if s.FillValue == 0 {
-		s.UseFiller = false
 	}
 	if s.AuthMode != "" {
 		authType := authentication.Type(strings.TrimSpace(s.AuthMode))

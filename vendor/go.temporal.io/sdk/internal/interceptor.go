@@ -297,10 +297,22 @@ type WorkflowOutboundInterceptor interface {
 	// SideEffect intercepts workflow.SideEffect.
 	SideEffect(ctx Context, f func(ctx Context) interface{}) converter.EncodedValue
 
+	// SideEffectWithOptions intercepts workflow.SideEffectWithOptions.
+	SideEffectWithOptions(ctx Context, options SideEffectOptions, f func(ctx Context) interface{}) converter.EncodedValue
+
 	// MutableSideEffect intercepts workflow.MutableSideEffect.
 	MutableSideEffect(
 		ctx Context,
 		id string,
+		f func(ctx Context) interface{},
+		equals func(a, b interface{}) bool,
+	) converter.EncodedValue
+
+	// MutableSideEffectWithOptions intercepts workflow.MutableSideEffectWithOptions.
+	MutableSideEffectWithOptions(
+		ctx Context,
+		id string,
+		options MutableSideEffectOptions,
 		f func(ctx Context) interface{},
 		equals func(a, b interface{}) bool,
 	) converter.EncodedValue
@@ -560,6 +572,8 @@ type NexusOperationInboundInterceptor interface {
 //
 // Note: Experimental
 type NexusOperationOutboundInterceptor interface {
+	// GetOperationInfo intercepts temporalnexus.GetOperationInfo.
+	GetOperationInfo(ctx context.Context) NexusOperationInfo
 	// GetClient intercepts temporalnexus.GetClient.
 	GetClient(ctx context.Context) Client
 	// GetLogger intercepts temporalnexus.GetLogger.

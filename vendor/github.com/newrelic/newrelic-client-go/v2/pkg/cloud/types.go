@@ -519,6 +519,8 @@ type CloudAwsDisableIntegrationsInput struct {
 	Route53 []CloudDisableAccountIntegrationInput `json:"route53,omitempty"`
 	// S3 integration
 	S3 []CloudDisableAccountIntegrationInput `json:"s3,omitempty"`
+	// SecurityHub integration
+	SecurityHub []CloudDisableAccountIntegrationInput `json:"securityHub,omitempty"`
 	// SES integration
 	Ses []CloudDisableAccountIntegrationInput `json:"ses,omitempty"`
 	// SNS integration
@@ -893,6 +895,8 @@ type CloudAwsIntegrationsInput struct {
 	Route53 []CloudRoute53IntegrationInput `json:"route53,omitempty"`
 	// S3 integration
 	S3 []CloudS3IntegrationInput `json:"s3,omitempty"`
+	// SecurityHub integration
+	SecurityHub []CloudSecurityHubIntegrationInput `json:"securityHub,omitempty"`
 	// SES integration
 	Ses []CloudSesIntegrationInput `json:"ses,omitempty"`
 	// SNS integration
@@ -1703,6 +1707,42 @@ type CloudAzureAppserviceIntegrationInput struct {
 	ResourceGroups []string `json:"resourceGroups,omitempty"`
 }
 
+// CloudAzureAutoDiscoveryIntegration - Azure Auto Discover Integration
+type CloudAzureAutoDiscoveryIntegration struct {
+	// The object creation date, in epoch (Unix) time
+	CreatedAt nrtime.EpochSeconds `json:"createdAt"`
+	// Specify if integration is active
+	Enabled bool `json:"enabled,omitempty"`
+	// The cloud service integration identifier.
+	ID int `json:"id,omitempty"`
+	// The polling interval for metadata and tags, in seconds.
+	InventoryPollingInterval int `json:"inventoryPollingInterval,omitempty"`
+	// The parent linked account identifier.
+	LinkedAccount CloudLinkedAccount `json:"linkedAccount,omitempty"`
+	// The polling interval for metrics, in seconds.
+	MetricsPollingInterval int `json:"metricsPollingInterval,omitempty"`
+	// The cloud service integration name.
+	Name string `json:"name,omitempty"`
+	// The parent NewRelic account identifier.
+	NrAccountId int `json:"nrAccountId"`
+	// The cloud service used in the integration.
+	Service CloudService `json:"service,omitempty"`
+	// The object last update date, in epoch (Unix) time
+	UpdatedAt nrtime.EpochSeconds `json:"updatedAt"`
+}
+
+func (x *CloudAzureAutoDiscoveryIntegration) ImplementsCloudIntegration() {}
+
+// CloudAzureAutoDiscoveryIntegrationInput - Azure Auto Discovery
+type CloudAzureAutoDiscoveryIntegrationInput struct {
+	// [DEPRECATED] Multiple polling interval is no longer supported, use only metrics_polling_interval
+	InventoryPollingInterval int `json:"inventoryPollingInterval,omitempty"`
+	// The linked account identifier.
+	LinkedAccountId int `json:"linkedAccountId"`
+	// The data polling interval in seconds.
+	MetricsPollingInterval int `json:"metricsPollingInterval,omitempty"`
+}
+
 // CloudAzureContainersIntegration - Containers Integration
 type CloudAzureContainersIntegration struct {
 	// The object creation date, in epoch (Unix) time
@@ -1863,6 +1903,8 @@ type CloudAzureDisableIntegrationsInput struct {
 	AzureAppgateway []CloudDisableAccountIntegrationInput `json:"azureAppgateway,omitempty"`
 	// App Service integration
 	AzureAppservice []CloudDisableAccountIntegrationInput `json:"azureAppservice,omitempty"`
+	// Azure Auto Discovery Integration
+	AzureAutoDiscovery []CloudDisableAccountIntegrationInput `json:"azureAutoDiscovery,omitempty"`
 	// Containers integration
 	AzureContainers []CloudDisableAccountIntegrationInput `json:"azureContainers,omitempty"`
 	// Cosmos DB integration
@@ -2121,6 +2163,8 @@ type CloudAzureIntegrationsInput struct {
 	AzureAppgateway []CloudAzureAppgatewayIntegrationInput `json:"azureAppgateway,omitempty"`
 	// App Service integration
 	AzureAppservice []CloudAzureAppserviceIntegrationInput `json:"azureAppservice,omitempty"`
+	// Azure Auto Discovery Integration
+	AzureAutoDiscovery []CloudAzureAutoDiscoveryIntegrationInput `json:"azureAutoDiscovery,omitempty"`
 	// Containers integration
 	AzureContainers []CloudAzureContainersIntegrationInput `json:"azureContainers,omitempty"`
 	// Cosmos DB integration
@@ -5430,8 +5474,6 @@ type CloudOciLinkAccountInput struct {
 	OciDomainURL string `json:"ociDomainUrl"`
 	// The home region of the tenancy.
 	OciHomeRegion string `json:"ociHomeRegion"`
-	// The service user name for OCI WIF.
-	OciSvcUserName string `json:"ociSvcUserName"`
 	// The OCI tenant identifier.
 	TenantId string `json:"tenantId"`
 	// The user secret OCID.
@@ -5534,8 +5576,6 @@ type CloudOciUpdateAccountInput struct {
 	OciHomeRegion string `json:"ociHomeRegion,omitempty"`
 	// The OCI region for the account.
 	OciRegion string `json:"ociRegion,omitempty"`
-	// The service user name for OCI WIF.
-	OciSvcUserName string `json:"ociSvcUserName,omitempty"`
 	// The OCI tenant (used to fetch data).
 	TenantId string `json:"tenantId,omitempty"`
 	// The OCI user secret OCID.
@@ -5764,6 +5804,44 @@ type CloudS3IntegrationInput struct {
 	TagKey string `json:"tagKey,omitempty"`
 	// Specify a Tag value associated with the resources that you want to monitor. Filter values are case-sensitive.
 	TagValue string `json:"tagValue,omitempty"`
+}
+
+// CloudSecurityHubIntegration - SecurityHub Integration
+type CloudSecurityHubIntegration struct {
+	// Specify each AWS region that includes the resources that you want to monitor.
+	AwsRegions []string `json:"awsRegions,omitempty"`
+	// The object creation date, in epoch (Unix) time
+	CreatedAt nrtime.EpochSeconds `json:"createdAt"`
+	// The cloud service integration identifier.
+	ID int `json:"id,omitempty"`
+	// [DEPRECATED] Multiple polling interval is no longer supported, use only metrics_polling_interval
+	InventoryPollingInterval int `json:"inventoryPollingInterval,omitempty"`
+	// The parent linked account identifier.
+	LinkedAccount CloudLinkedAccount `json:"linkedAccount,omitempty"`
+	// The data polling interval in seconds.
+	MetricsPollingInterval int `json:"metricsPollingInterval,omitempty"`
+	// The cloud service integration name.
+	Name string `json:"name,omitempty"`
+	// The parent NewRelic account identifier.
+	NrAccountId int `json:"nrAccountId"`
+	// The cloud service used in the integration.
+	Service CloudService `json:"service,omitempty"`
+	// The object last update date, in epoch (Unix) time
+	UpdatedAt nrtime.EpochSeconds `json:"updatedAt"`
+}
+
+func (x *CloudSecurityHubIntegration) ImplementsCloudIntegration() {}
+
+// CloudSecurityHubIntegrationInput - AWS SecurityHub
+type CloudSecurityHubIntegrationInput struct {
+	// Specify each AWS region that includes the resources that you want to monitor.
+	AwsRegions []string `json:"awsRegions,omitempty"`
+	// [DEPRECATED] Multiple polling interval is no longer supported, use only metrics_polling_interval
+	InventoryPollingInterval int `json:"inventoryPollingInterval,omitempty"`
+	// The linked account identifier.
+	LinkedAccountId int `json:"linkedAccountId"`
+	// The data polling interval in seconds.
+	MetricsPollingInterval int `json:"metricsPollingInterval,omitempty"`
 }
 
 // CloudService - A Cloud Provider service available for monitoring.
@@ -6481,6 +6559,17 @@ func UnmarshalCloudIntegrationInterface(b []byte) (*CloudIntegrationInterface, e
 			return &xxx, nil
 		case "CloudAzureAppserviceIntegration":
 			var interfaceType CloudAzureAppserviceIntegration
+			err = json.Unmarshal(b, &interfaceType)
+			if err != nil {
+				return nil, err
+			}
+
+			var xxx CloudIntegrationInterface = &interfaceType
+
+			return &xxx, nil
+
+		case "CloudAzureAutoDiscoveryIntegration":
+			var interfaceType CloudAzureAutoDiscoveryIntegration
 			err = json.Unmarshal(b, &interfaceType)
 			if err != nil {
 				return nil, err
@@ -7301,6 +7390,16 @@ func UnmarshalCloudIntegrationInterface(b []byte) (*CloudIntegrationInterface, e
 			return &xxx, nil
 		case "CloudS3Integration":
 			var interfaceType CloudS3Integration
+			err = json.Unmarshal(b, &interfaceType)
+			if err != nil {
+				return nil, err
+			}
+
+			var xxx CloudIntegrationInterface = &interfaceType
+
+			return &xxx, nil
+		case "CloudSecurityHubIntegration":
+			var interfaceType CloudSecurityHubIntegration
 			err = json.Unmarshal(b, &interfaceType)
 			if err != nil {
 				return nil, err

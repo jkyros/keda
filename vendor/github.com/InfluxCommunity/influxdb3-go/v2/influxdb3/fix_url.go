@@ -23,7 +23,8 @@
 package influxdb3
 
 import (
-	"strings"
+	"fmt"
+	"net/url"
 )
 
 // ReplaceURLProtocolWithPort removes the "http://" or "https://" protocol from the given URL and replaces it with the port number.
@@ -40,25 +41,23 @@ import (
 // Returns:
 //   - The modified URL with the protocol replaced by the port.
 //   - A boolean value indicating the safety of communication (true for safe, false for unsafe) or nil if not detected.
-func ReplaceURLProtocolWithPort(url string) (string, *bool) {
-	url = strings.TrimSuffix(url, "/")
-	var safe *bool
+func ReplaceURLProtocolWithPort(serverURL string) (string, bool) {
+	u, _ := url.Parse(serverURL)
+	var safe bool
+	if u.Scheme == schemeHTTPS {
+		safe = true
+	}
+	serverURL = fmt.Sprintf("%s:%s%s", u.Hostname(), port(u), u.Path)
+	return serverURL, safe
+}
 
-	if strings.HasPrefix(url, "http://") {
-		url = strings.TrimPrefix(url, "http://")
-		safe = new(bool)
-		*safe = false
-		if strings.Count(url, ":") == 0 {
-			url += ":80"
-		}
-	} else if strings.HasPrefix(url, "https://") {
-		url = strings.TrimPrefix(url, "https://")
-		safe = new(bool)
-		*safe = true
-		if strings.Count(url, ":") == 0 {
-			url += ":443"
+func port(u *url.URL) string {
+	port := u.Port()
+	if port == "" {
+		port = "80"
+		if u.Scheme == schemeHTTPS {
+			port = "443"
 		}
 	}
-
-	return url, safe
+	return port
 }
